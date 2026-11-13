@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createHmac, createHash, timingSafeEqual, randomUUID } from "node:crypto";
-import { get, put, BlobPreconditionFailedError } from "@vercel/blob";
+import { get, head, put, BlobPreconditionFailedError } from "@vercel/blob";
 
 const PATH="bookcore/v1/state.json";
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN||"";
@@ -150,6 +150,13 @@ async function execute(req){
     const provided=uri.searchParams.get("key")||"";
     const expected="33e4438b742bc2dcb7ded974c341f03f31eca8d31d719a66c99a10fbd1c9b827";
     if(createHash("sha256").update(provided).digest("hex")!==expected)fail(404,"NOT_FOUND");
+    if(uri.searchParams.get("mode")==="meta"){
+      const current=await load();
+      const meta=await head(PATH);
+      return respond({getHasEtag:!!current.etag,headHasEtag:!!meta?.etag,etagEqual:current.etag===meta?.etag,
+        getEtagLength:current.etag?.length||0,headEtagLength:meta?.etag?.length||0,
+        getQuoted:current.etag?.startsWith('"')||false,headQuoted:meta?.etag?.startsWith('"')||false});
+    }
     const proof=randomUUID();
     await mutate(s=>{s.__storage_probe={proof};return true;});
     const verified=await mutate(s=>{
