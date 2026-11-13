@@ -5,6 +5,7 @@ import { get, head, put, BlobPreconditionFailedError } from "@vercel/blob";
 const PATH="bookcore/v1/state.json";
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN||"";
 const MASTER=String(process.env.MASTER_TELEGRAM_ID||"");
+const MASTER_IDS=new Set([MASTER,...String(process.env.ADDITIONAL_MASTER_TELEGRAM_IDS||"").split(/[,;\s]+/)].filter(id=>/^\d{5,20}$/.test(id)));
 const STUDIO=process.env.TENANT_DISPLAY_NAME||"Студия красоты";
 const MASTER_NAME=process.env.MASTER_DISPLAY_NAME||"Ваш мастер";
 const TZ=process.env.TENANT_TIMEZONE||"Europe/Moscow";
@@ -159,7 +160,7 @@ function identity(req){
   const key=createHmac("sha256","WebAppData").update(TOKEN).digest();
   const expected=createHmac("sha256",key).update(check).digest();
   if(!timingSafeEqual(Buffer.from(hash,"hex"),expected))return null;
-  try{const u=JSON.parse(p.get("user")||"{}");if(!Number.isSafeInteger(u.id)||u.id<1)return null;return {id:String(u.id),master:String(u.id)===MASTER};}catch{return null;}
+  try{const u=JSON.parse(p.get("user")||"{}");if(!Number.isSafeInteger(u.id)||u.id<1)return null;return {id:String(u.id),master:MASTER_IDS.has(String(u.id))};}catch{return null;}
 }
 function daySchedule(s,date){
   const day=(new Date(date+"T12:00:00Z").getUTCDay()+6)%7;
@@ -190,6 +191,7 @@ async function notify(chat,text,reply_markup){
   if(!TOKEN||!chat)return;
   try{await botCall("sendMessage",{chat_id:chat,text,...(reply_markup?{reply_markup}:{})});}catch(e){console.warn("BOOKCORE_NOTIFICATION_FAILED",String(e))}
 }
+async function notifyMasters(message){await Promise.all([...MASTER_IDS].map(id=>notify(id,message)));}
 function prettyDate(value){return new Date(value).toLocaleString("ru-RU",{timeZone:TZ,dateStyle:"medium",timeStyle:"short"});}
 async function body(req){try{return await req.json()}catch{return {};}}
 function secureUser(a){return {role:a.master?"master":"client"};}
@@ -299,7 +301,7 @@ async function execute(req){
       return appointment;
     });
     await notify(auth.id,"Запись подтверждена!\n"+saved.service_name+"\n"+prettyDate(saved.starts_at));
-    if(MASTER)await notify(MASTER,"Новая запись: "+saved.name+"\n"+saved.service_name+"\n"+prettyDate(saved.starts_at));
+    await notifyMasters("Новая запись: "+saved.name+"\n"+saved.service_name+"\n"+prettyDate(saved.starts_at));
     return respond({ok:true,id:saved.id});
   }
   if(route==="/api/cancel"&&method==="POST"){
@@ -313,7 +315,7 @@ async function execute(req){
       x.status=auth.master?"cancelled_by_master":"cancelled_by_client";return {...x};
     });
     if(auth.master)await notify(booking.telegram_id,"Мастер отменил запись: "+prettyDate(booking.starts_at));
-    else await notify(MASTER,"Клиент отменил запись: "+booking.name);
+    else await notifyMasters("Клиент отменил запись: "+booking.name);
     return respond({ok:true});
   }
   if(route==="/api/reschedule"&&method==="POST"){
@@ -330,7 +332,7 @@ async function execute(req){
       Object.assign(x,timeRange(bundle,date,time));return {...x};
     });
     await notify(booking.telegram_id,"Запись перенесена: "+prettyDate(booking.starts_at));
-    if(!auth.master)await notify(MASTER,"Клиент перенёс запись: "+booking.name);
+    if(!auth.master)await notifyMasters("Клиент перенёс запись: "+booking.name);
     return respond({ok:true,id:booking.id});
   }
   if(!auth.master)fail(403,"FORBIDDEN");
