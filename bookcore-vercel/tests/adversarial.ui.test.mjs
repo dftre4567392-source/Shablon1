@@ -78,3 +78,18 @@ test("UI-ABUSE-06 HTML error pages yield understandable message, not JSON parser
  assert.match(message,/сервер|временно|Повторите|недоступ|позже/i);
  assert.doesNotMatch(message,/Unexpected token|JSON|SyntaxError/i);
 });
+
+test("UI-ABUSE-07 failed appointment loading displays a useful user message",async()=>{
+ const e=environment();
+ e.run('api=()=>Promise.reject(new Error("OFFLINE"))');
+ await e.run("loadBookings()");
+ assert.ok(e.dialogs.some(x=>/запис|соединен|загруз/i.test(x)),JSON.stringify(e.dialogs));
+});
+test("UI-ABUSE-08 technical API codes are translated before showing to a client",async()=>{
+ const e=environment();
+ e.run('fetch=async()=>new Response(JSON.stringify({error:"TIME_NOT_AVAILABLE"}),{status:409,headers:{"content-type":"application/json"}})');
+ let message="";
+ try{await e.run('api("/api/book")')}catch(error){message=error.message;}
+ assert.match(message,/врем|занят|свобод/i);
+ assert.doesNotMatch(message,/TIME_NOT_AVAILABLE/);
+});
