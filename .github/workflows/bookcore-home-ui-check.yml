@@ -1,0 +1,32 @@
+name: BOOKCORE home UI syntax
+on:
+  push:
+    paths:
+      - 'bookcore-vercel/index.html'
+      - '.github/workflows/bookcore-home-ui-check.yml'
+  workflow_dispatch:
+jobs:
+  browser-syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse embedded client script
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path("bookcore-vercel/index.html").read_text()
+          match = re.findall(r"<script[^>]*>(.*?)</script>", source, re.DOTALL)
+          assert match, "No script found"
+          js = match[-1]
+          assert 'function homeBookingCard()' in js
+          assert 'function publicView()' in js
+          assert 'function masterView()' in js
+          assert 'Выберите процедуру' in js
+          assert '♡ Забота в деталях' not in js
+          Path("/tmp/bookcore-browser.js").write_text(js)
+          PY
+          node --check /tmp/bookcore-browser.js
+          echo "BOOKCORE_HOME_UI_SYNTAX_PASS"
