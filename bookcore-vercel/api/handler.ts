@@ -208,6 +208,24 @@ async function execute(req){
   }
   const auth=identity(req);
   if(!auth)fail(401,"TELEGRAM_AUTH_REQUIRED");
+  if(route==="/api/avatar"&&method==="GET"){
+    // Only return the authenticated Telegram user's own public profile photo.
+    // The Telegram bot token and file_path must never reach the browser.
+    let photos;
+    try { photos=await botCall("getUserProfilePhotos",{user_id:Number(auth.id),limit:1}); }
+    catch(e){console.warn("BOOKCORE_AVATAR_LOOKUP_FAILED",String(e));return new Response(null,{status:204,headers:{"cache-control":"private, max-age=120"}});}
+    const variants=photos?.photos?.[0];
+    if(!Array.isArray(variants)||variants.length===0)return new Response(null,{status:204,headers:{"cache-control":"private, max-age=120"}});
+    const selected=variants.slice().sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
+    const file=await botCall("getFile",{file_id:selected.file_id});
+    const filePath=String(file?.file_path||"");
+    if(!/^[A-Za-z0-9_.\/-]+$/.test(filePath)||filePath.includes(".."))fail(503,"AVATAR_UNAVAILABLE");
+    const photo=await fetch("https://api.telegram.org/file/bot"+TOKEN+"/"+filePath,{signal:AbortSignal.timeout(9000)});
+    if(!photo.ok)return new Response(null,{status:204,headers:{"cache-control":"private, max-age=120"}});
+    const bytes=await photo.arrayBuffer();
+    if(bytes.byteLength>2*1024*1024||bytes.byteLength===0)return new Response(null,{status:204});
+    return new Response(bytes,{status:200,headers:{"content-type":"image/jpeg","cache-control":"private, max-age=600","x-content-type-options":"nosniff"}});
+  }
   if(route==="/api/me"&&method==="GET"){
     const {state}=await load();
     const user=state.users[auth.id];
