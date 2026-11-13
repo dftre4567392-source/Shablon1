@@ -32,7 +32,7 @@ const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
 function fail(msg){alert(msg);}
-async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json();if(!r.ok)throw new Error(x.error||"Ошибка сервера");return x;}
+async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json().catch(()=>null);if(x===null)throw new Error("Сервер временно недоступен. Попробуйте ещё раз.");if(!r.ok)throw new Error(x.error||"Сервер временно недоступен. Попробуйте ещё раз.");return x;}
 const isMaster=()=>state.me&&state.me.role==="master";
 async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}if(isMaster())state.loading=true;render();if(isMaster())void loadMaster();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
 function route(p){
@@ -212,7 +212,7 @@ function bookingCard(b){
   return '<div class="card" style="margin-bottom:10px"><div class="row"><b>'+esc(b.service_name)+'</b><span class="pill">'+esc(b.status)+'</span></div>'+customer+'<div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b>'+actions+'</div></div>';
 }
 function masterView(){if(state.loading)return '<div class="empty">Загружаем кабинет мастера…</div>';if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid"><div class="card"><div class="sub">Активных записей</div><div class="value">'+recent.length+'</div></div><div class="card"><div class="sub">Всего клиентов</div><div class="value">'+(state.master&&state.master.clients||[]).length+'</div></div></div><div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
-if(state.page==="calendar")return '<div class="section"><h2>Календарь мастера</h2></div><div class="card"><h3>Добавить запись вручную</h3><input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/><select id="manualService" class="field">'+state.public.services.map(s=>'<option value="'+s.id+'">'+esc(s.title)+'</option>').join("")+'</select><div class="grid"><input id="manualDate" type="date" class="field"/><input id="manualTime" type="time" class="field"/></div><button class="btn full" onclick="createManual()">Добавить запись</button></div><div class="card" style="margin-top:12px"><h3>Закрыть день или часы</h3><input id="blockDay" type="date" class="field"/><div class="grid"><input id="from" type="time" class="field" placeholder="От"/><input id="to" type="time" class="field" placeholder="До"/></div><input id="blockReason" class="field" placeholder="Причина (необязательно)"/><p class="cap">Оставьте время пустым, чтобы закрыть весь день.</p><button class="btn full" onclick="blockDay()">Заблокировать</button></div><div class="section"><h2>Блокировки</h2></div>'+(state.master&&state.master.blocks||[]).map(b=>'<div class="item row"><div><b>'+esc(b.day.slice(0,10))+'</b><div class="sub">'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</div></div><button class="btn line" onclick="unblock('+b.id+')">Открыть</button></div>').join("")+'<div class="section"><h2>Записи</h2></div>'+(state.master&&state.master.bookings||[]).map(b=>bookingCard(b)+'<div class="flex" style="margin-bottom:15px"><button class="chip" onclick="setStatus(\''+b.id+'\',\'completed\')">Выполнено</button><button class="chip" onclick="setStatus(\''+b.id+'\',\'no_show\')">Неявка</button></div>').join("");
+if(state.page==="calendar")return '<div class="section"><h2>Календарь мастера</h2></div><div class="card"><h3>Добавить запись вручную</h3><input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/><select id="manualService" class="field">'+state.public.services.map(s=>'<option value="'+s.id+'">'+esc(s.title)+'</option>').join("")+'</select><div class="grid"><input id="manualDate" type="date" class="field"/><input id="manualTime" type="time" class="field"/></div><button class="btn full" onclick="createManual()">Добавить запись</button></div><div class="card" style="margin-top:12px"><h3>Закрыть день или часы</h3><input id="blockDay" type="date" class="field"/><div class="grid"><input id="from" type="time" class="field" placeholder="От"/><input id="to" type="time" class="field" placeholder="До"/></div><input id="blockReason" class="field" placeholder="Причина (необязательно)"/><p class="cap">Оставьте время пустым, чтобы закрыть весь день.</p><button class="btn full" onclick="blockDay()">Заблокировать</button></div><div class="section"><h2>Блокировки</h2></div>'+(state.master&&state.master.blocks||[]).map(b=>'<div class="item row"><div><b>'+esc(b.day.slice(0,10))+'</b><div class="sub">'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</div></div><button class="btn line" onclick="unblock('+b.id+')">Открыть</button></div>').join("")+'<div class="section"><h2>Записи</h2></div>'+(state.master&&state.master.bookings||[]).map(b=>bookingCard(b)+(b.status==="confirmed"&&Date.parse(b.starts_at)<=Date.now()?'<div class="flex" style="margin-bottom:15px"><button class="chip" onclick="setStatus(\''+b.id+'\',\'completed\')">Выполнено</button><button class="chip" onclick="setStatus(\''+b.id+'\',\'no_show\')">Неявка</button></div>':"")).join("");
 if(state.page==="clients")return '<div class="section"><h2>Клиентская база</h2></div>'+(state.master&&state.master.clients||[]).map(u=>'<div class="item row"><div class="circle">♙</div><div style="flex:1"><b>'+esc(u.client_name||"Без имени")+'</b><div class="cap">Telegram ID: '+esc(u.telegram_id)+'</div></div></div>').join("")||'<div class="empty">Клиентов пока нет</div>';
 return '<div class="section"><h2>Услуги и настройки</h2></div><div class="card"><h3>Добавить услугу</h3><input id="newServiceName" class="field" placeholder="Название услуги"/><div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" value="120" placeholder="Минут"/><input id="newServicePrice" class="field" type="number" min="0" value="1700" placeholder="Цена ₽"/></div><button class="btn full" onclick="createService()">Добавить</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить график</h2></div><div class="card"><select id="weekday" class="field"><option value="0">Понедельник</option><option value="1">Вторник</option><option value="2">Среда</option><option value="3">Четверг</option><option value="4">Пятница</option><option value="5">Суббота</option><option value="6">Воскресенье</option></select><div class="grid"><input id="workStart" type="time" class="field" value="10:00"/><input id="workEnd" type="time" class="field" value="19:00"/></div><label class="sub"><input id="workEnabled" type="checkbox" checked/> Рабочий день</label><button class="btn full" style="margin-top:12px" onclick="saveSchedule()">Сохранить график</button></div><div class="section"><h2>Рабочие дни</h2></div>'+(state.master&&state.master.schedule||[]).map(w=>'<div class="item row"><span>'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][w.weekday]+'</span><span>'+esc(w.start_time)+'–'+esc(w.end_time)+'</span><span class="pill">'+(w.active?"Рабочий":"Выходной")+'</span></div>').join("");}
 function render(){
@@ -273,7 +273,9 @@ async function saveSchedule(){
   catch(e){fail("Не удалось сохранить график: "+e.message);}
 }
 let rescheduling=null;
+let moveRequestSequence=0;
 function rescheduleForm(id,serviceIds){
+  moveRequestSequence++;
   rescheduling={id,serviceIds,date:"",time:""};
   state.calendarMonth=studioToday().slice(0,7)+"-01";
   el("modalRoot").innerHTML='<div class="overlay"><div class="modal">'+
@@ -282,7 +284,7 @@ function rescheduleForm(id,serviceIds){
     '<div class="flex" style="margin-top:15px"><button class="btn" id="moveSave" disabled onclick="submitMove()">Сохранить перенос</button>'+
     '<button class="btn line" onclick="closeMoveModal()">Закрыть</button></div></div></div>';
 }
-function closeMoveModal(){rescheduling=null;el("modalRoot").innerHTML="";}
+function closeMoveModal(){moveRequestSequence++;rescheduling=null;el("modalRoot").innerHTML="";}
 function renderMoveCalendar(){
   const target=el("moveCalendar");if(target&&rescheduling)target.innerHTML=calendarMarkup("move");
 }
@@ -291,15 +293,34 @@ function selectMoveDate(date){
   rescheduling.date=date;rescheduling.time="";renderMoveCalendar();void loadMoveSlots(date);
 }
 async function loadMoveSlots(date){
-  if(!rescheduling)return;
-  rescheduling.date=date;rescheduling.time="";
-  try{const r=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+encodeURIComponent(rescheduling.serviceIds.join(",")));el("moveSlots").innerHTML=(r.slots||[]).map(t=>'<button class="chip" onclick="chooseMoveTime('+String.fromCharCode(39)+t+String.fromCharCode(39)+')">'+t+'</button>').join("")||'<p class="sub">Нет свободных окон</p>';el("moveSave").disabled=true;}
-  catch(e){el("moveSlots").innerHTML='<p class="error">Не удалось загрузить время</p>';}
+  const current=rescheduling;
+  if(!current)return;
+  const request=++moveRequestSequence;
+  current.date=date;current.time="";current.availableSlots=[];
+  const initialSlots=el("moveSlots"),initialSave=el("moveSave");
+  if(initialSlots)initialSlots.innerHTML='<p class="sub">Проверяем свободное время…</p>';
+  if(initialSave)initialSave.disabled=true;
+  const valid=()=>rescheduling===current&&request===moveRequestSequence&&current.date===date;
+  try{
+    const response=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+encodeURIComponent(current.serviceIds.join(",")));
+    if(!valid())return;
+    const slotsElement=el("moveSlots"),save=el("moveSave");
+    if(!slotsElement||!save)return;
+    current.availableSlots=response.slots||[];
+    slotsElement.innerHTML=current.availableSlots.map(t=>'<button class="chip" onclick="chooseMoveTime('+String.fromCharCode(39)+t+String.fromCharCode(39)+')">'+t+'</button>').join("")||'<p class="sub">Нет свободных окон</p>';
+    save.disabled=true;
+  }catch(error){
+    if(!valid())return;
+    const slotsElement=el("moveSlots");
+    if(slotsElement)slotsElement.innerHTML='<p class="error">Не удалось загрузить время. Выберите дату ещё раз.</p>';
+  }
 }
 function chooseMoveTime(time){
+  if(!rescheduling||!rescheduling.availableSlots?.includes(time))return;
   rescheduling.time=time;
-  el("moveSave").disabled=false;
-  Array.from(el("moveSlots").querySelectorAll(".chip")).forEach(b=>b.classList.toggle("active",b.textContent===time));
+  const save=el("moveSave");if(save)save.disabled=false;
+  const slotsElement=el("moveSlots");
+  if(slotsElement)Array.from(slotsElement.querySelectorAll(".chip")).forEach(b=>b.classList.toggle("active",b.textContent===time));
 }
 async function submitMove(){
   if(!rescheduling||!rescheduling.time)return;
