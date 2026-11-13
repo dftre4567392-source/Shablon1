@@ -279,5 +279,16 @@ async function saveName(){const name=el("newName").value.trim();if(name.length<2
 init();
 </script></body></html>`;
 try {await schema();console.info("BOOKCORE_SCHEMA_READY");}catch(e){console.error("BOOKCORE_DB_SETUP_PENDING",String(e));}
+async function configureTelegram() {
+  if(!TOKEN || !APP_URL || !ENV.TELEGRAM_WEBHOOK_SECRET) return;
+  const apiBase = "https://api.telegram.org/bot"+TOKEN;
+  const post = (method, body) => fetch(apiBase+"/"+method,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  const results = await Promise.allSettled([
+    post("setWebhook",{url:APP_URL.replace(/\/$/,"")+"/bot/webhook",secret_token:ENV.TELEGRAM_WEBHOOK_SECRET,allowed_updates:["message"]}),
+    post("setChatMenuButton",{menu_button:{type:"web_app",text:"Записаться",web_app:{url:APP_URL}}})
+  ]);
+  for(const result of results) if(result.status==="rejected") console.warn("BOOKCORE_BOT_SETUP_RETRY",String(result.reason));
+}
 const server = Bun.serve({port:Number(ENV.PORT||3000),hostname:"0.0.0.0",fetch:handler});
+void configureTelegram();
 console.log("BOOKCORE server listening at "+server.port);
