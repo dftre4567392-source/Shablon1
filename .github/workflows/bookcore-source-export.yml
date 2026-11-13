@@ -1,0 +1,55 @@
+name: Export BOOKCORE deployed project ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/bookcore-source-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare current Vercel project source
+        run: |
+          set -euo pipefail
+          test -f bookcore-vercel/index.html
+          test -f bookcore-vercel/api/handler.ts
+          mkdir -p BOOKCORE_PROJECT
+          cp -a bookcore-vercel BOOKCORE_PROJECT/
+          find BOOKCORE_PROJECT -type f \( -name ".env" -o -name ".env.*" -o -name "*secret*" -o -name "*token*" -o -name "*.pem" -o -name "*.key" \) -delete
+          cat > BOOKCORE_PROJECT/НАЧАТЬ_ЗДЕСЬ.md <<'EOF'
+          # BOOKCORE — актуальные исходники мини-приложения
+
+          Эта папка содержит текущую опубликованную на Vercel версию Telegram Mini App.
+
+          - bookcore-vercel/index.html — клиентский интерфейс и кабинет мастера.
+          - bookcore-vercel/api/handler.ts — API, Telegram initData, профиль и бронирование.
+          - bookcore-vercel/vercel.json — конфигурация Vercel.
+          - bookcore-vercel/package.json — зависимости.
+          - bookcore-vercel/customer-template — анкета и шаблоны для следующих заказчиков.
+
+          Адрес: https://bookcore-telegram.vercel.app
+          GitHub: https://github.com/dftre4567392-source/Shablon1/tree/main/bookcore-vercel
+
+          ВАЖНО: в архиве нет секретов, базы клиентов и настроек хостинга.
+          Перед запуском задайте необходимые переменные окружения в Vercel:
+          TELEGRAM_BOT_TOKEN, MASTER_TELEGRAM_ID, BLOB_READ_WRITE_TOKEN,
+          APP_URL, TELEGRAM_WEBHOOK_SECRET.
+
+          Это адаптированная опубликованная версия на Vercel, а не
+          старый полный React-монорепозиторий из первоначального ZIP.
+          EOF
+          echo "Files:"
+          find BOOKCORE_PROJECT -type f | sort
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BOOKCORE_project_latest
+          path: BOOKCORE_PROJECT/
+          if-no-files-found: error
+          retention-days: 7
