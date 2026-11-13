@@ -1,0 +1,106 @@
+name: BOOKCORE booking integration
+on:
+  push:
+    paths:
+      - 'bookcore/**'
+      - '.github/workflows/bookcore-integration.yml'
+  workflow_dispatch:
+jobs:
+  booking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bookcore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/bookcore_test
+      TELEGRAM_BOT_TOKEN: "test:ci_only_not_a_real_token"
+      MASTER_TELEGRAM_ID: "10001"
+      TENANT_TIMEZONE: Europe/Moscow
+      TENANT_DISPLAY_NAME: Testing Studio
+      MASTER_DISPLAY_NAME: Testing Master
+      PORT: "3111"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Start BOOKCORE application
+        run: |
+          bun run bookcore/index.ts > /tmp/bookcore.log 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -sSf http://127.0.0.1:3111/health >/tmp/health.json; then break; fi
+            sleep 1
+          done
+          cat /tmp/bookcore.log
+          jq -e '.database == true' /tmp/health.json
+      - name: Check authenticated booking, collisions and blocking
+        run: |
+          python3 - <<'PY'
+          import json, hmac, hashlib, time, datetime, urllib.parse, urllib.request, urllib.error
+          BASE="http://127.0.0.1:3111"
+          TOKEN=b"test:ci_only_not_a_real_token"
+          def signed(uid):
+              params={
+                  "auth_date":str(int(time.time())),
+                  "user":json.dumps({"id":uid,"first_name":"Tester"},ensure_ascii=False,separators=(",",":"))
+              }
+              data="\n".join(k+"="+v for k,v in sorted(params.items()))
+              key=hmac.new(b"WebAppData",TOKEN,hashlib.sha256).digest()
+              params["hash"]=hmac.new(key,data.encode(),hashlib.sha256).hexdigest()
+              return urllib.parse.urlencode(params)
+          def call(route,method="GET",body=None,uid=None):
+              payload=json.dumps(body,ensure_ascii=False).encode() if body is not None else None
+              headers={"content-type":"application/json"}
+              if uid: headers["x-telegram-init-data"]=signed(uid)
+              req=urllib.request.Request(BASE+route,method=method,data=payload,headers=headers)
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as res:return res.status,json.loads(res.read())
+              except urllib.error.HTTPError as exc:return exc.code,json.loads(exc.read())
+          r=call("/api/me",uid=20002)
+          assert r[0]==200 and r[1]["needsName"],r
+          r=call("/api/name","POST",{"name":"Анастасия"},uid=20002)
+          assert r[0]==200,r
+          delta=(1-datetime.datetime.now(datetime.timezone.utc).weekday())%7+7
+          date=(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(days=delta)).date().isoformat()
+          r=call("/api/slots?date="+date+"&service=1")
+          assert r[0]==200 and r[1]["slots"],r
+          slot=r[1]["slots"][0]
+          r=call("/api/book","POST",{"date":date,"time":slot,"serviceId":1},uid=20002)
+          assert r[0]==200,r
+          id=r[1]["id"]
+          r=call("/api/book","POST",{"date":date,"time":slot,"serviceId":1},uid=20002)
+          assert r[0]==409,r
+          r=call("/api/bookings",uid=20002)
+          assert r[0]==200 and any(b["id"]==id for b in r[1]["bookings"]),r
+          r=call("/api/master",uid=20002)
+          assert r[0]==403,r
+          r=call("/api/block","POST",{"day":date,"reason":"Holiday"},uid=10001)
+          assert r[0]==409 and r[1]["count"]>0,r
+          r=call("/api/cancel","POST",{"id":id},uid=20002)
+          assert r[0]==200,r
+          r=call("/api/block","POST",{"day":date,"reason":"Holiday"},uid=10001)
+          assert r[0]==200,r
+          blockid=r[1]["id"]
+          r=call("/api/slots?date="+date+"&service=1")
+          assert r[0]==200 and not r[1]["slots"],r
+          r=call("/api/unblock","POST",{"id":blockid},uid=10001)
+          assert r[0]==200,r
+          r=call("/api/slots?date="+date+"&service=1")
+          assert r[0]==200 and slot in r[1]["slots"],r
+          print("INTEGRATION_PASS: identity, name, schedule, booking, collision, cancellation, block, unblock")
+          PY
+      - name: Print server logs on failure
+        if: failure()
+        run: cat /tmp/bookcore.log || true
