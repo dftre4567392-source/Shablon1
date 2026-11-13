@@ -7,7 +7,7 @@
     "check": "node --check index.html"
   },
   "dependencies": {
-    "@vercel/blob": "^2.3.0"
+    "@vercel/blob": "2.9.0"
   },
   "engines": {
     "node": ">=22"
