@@ -1,0 +1,33 @@
+name: BOOKCORE live calendar and multi-service API
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/bookcore-live-calendar.yml'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm live combined availability and invalid-date rejection
+        run: |
+          set -euo pipefail
+          base="https://bookcore-telegram.vercel.app/api/handler?route=%2Fapi%2Fslots"
+          future=$(date -u -d "+7 days" +%F)
+          curl -fsS --retry 3 --retry-delay 2 --max-time 30 \
+            "$base&date=$future&services=1%2C4" -o /tmp/slots.json
+          jq -e '.slots | type == "array"' /tmp/slots.json >/dev/null
+          echo "Multi-service API returns slots array"
+          for bad in "2026-09-31" "92920-09-31"; do
+            code=$(curl -sS -o /tmp/invalid.json -w "%{http_code}" --max-time 30 \
+              "$base&date=$bad&services=1%2C4")
+            test "$code" = "400" || { echo "Expected 400, got $code"; cat /tmp/invalid.json; exit 1; }
+            jq -e '.error == "INVALID_DATE"' /tmp/invalid.json >/dev/null
+            echo "Rejected $bad"
+          done
+          too_far=$(date -u -d "+48 days" +%F)
+          code=$(curl -sS -o /tmp/limit.json -w "%{http_code}" --max-time 30 \
+            "$base&date=$too_far&services=1%2C4")
+          test "$code" = "400"
+          jq -e '.error == "DATE_OUT_OF_RANGE"' /tmp/limit.json >/dev/null
+          echo "LIVE_CALENDAR_MULTI_SERVICE_PASS"
