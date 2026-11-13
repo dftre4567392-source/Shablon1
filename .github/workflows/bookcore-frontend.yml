@@ -1,0 +1,24 @@
+name: BOOKCORE frontend syntax
+on:
+  push:
+    paths:
+      - 'bookcore/index.ts'
+      - '.github/workflows/bookcore-frontend.yml'
+  workflow_dispatch:
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract browser script and verify JavaScript
+        run: |
+          python3 - <<'PY'
+          import pathlib,re
+          code=pathlib.Path("bookcore/index.ts").read_text()
+          html=code.split("const PAGE = `",1)[1].split("`;",1)[0]
+          scripts=re.findall(r"<script[^>]*>(.*?)</script>",html,flags=re.S)
+          assert scripts and "function render()" in scripts[-1]
+          pathlib.Path("/tmp/bookcore-browser.js").write_text(scripts[-1])
+          print("Extracted browser code:",len(scripts[-1]),"bytes")
+          PY
+          node --check /tmp/bookcore-browser.js
