@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
+import { createHmac, createHash, timingSafeEqual, randomUUID } from "node:crypto";
 import { get, put, BlobPreconditionFailedError } from "@vercel/blob";
 
 const PATH="bookcore/v1/state.json";
@@ -144,6 +144,20 @@ async function execute(req){
   const uri=new URL(req.url);
   const route=uri.searchParams.get("route")||"/health";
   const method=req.method;
+
+  // Temporary, hash-guarded storage migration check; removed after verification.
+  if(route==="/api/__one_time_storage_probe"&&method==="GET"){
+    const provided=uri.searchParams.get("key")||"";
+    const expected="33e4438b742bc2dcb7ded974c341f03f31eca8d31d719a66c99a10fbd1c9b827";
+    if(createHash("sha256").update(provided).digest("hex")!==expected)fail(404,"NOT_FOUND");
+    const proof=randomUUID();
+    await mutate(s=>{s.__storage_probe={proof};return true;});
+    const verified=await mutate(s=>{
+      if(s.__storage_probe?.proof!==proof)fail(503,"STORAGE_READ_AFTER_WRITE_INCONSISTENT");
+      delete s.__storage_probe;return true;
+    });
+    return respond({ok:verified,writeOne:true,readAfterWrite:true,writeTwo:true});
+  }
   if(route==="/health"||route==="/api/health"){
     let storage=false;
     try{await load();storage=true;}catch(e){console.error("BOOKCORE_STORAGE_STATUS",String(e));}
