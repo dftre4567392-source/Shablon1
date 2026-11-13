@@ -1,0 +1,22 @@
+name: BOOKCORE greeting live check
+on:
+  push:
+    paths:
+      - '.github/workflows/bookcore-greeting-check.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check deployed Telegram menu and welcome message source
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 45 'https://bookcore-telegram.vercel.app/api/handler?route=%2Fapi%2Fpublic' -o /tmp/bookcore.json
+          jq -e '.botConfigured == true and (.botUsername | type == "string")' /tmp/bookcore.json > /dev/null
+          grep -q 'BOOKCORE | Онлайн-запись' bookcore-vercel/api/handler.ts
+          grep -q 'text:"📅 Открыть онлайн-запись"' bookcore-vercel/api/handler.ts
+          grep -q 'command==="/start"' bookcore-vercel/api/handler.ts
+          grep -q 'command==="/id"' bookcore-vercel/api/handler.ts
+          echo "BOOKCORE_GREETING_READY"
