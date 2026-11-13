@@ -345,7 +345,8 @@ test("31 malformed or unsafe customer service catalog is rejected",()=>{
   ];
   for(const services of invalid){
     const h=createHarness({services});
-    assert.rejects(h.request("/api/public"),/INVALID_BOOKCORE_SERVICES_JSON/);
+    const response=await h.request("/api/public");
+    assert.equal(response.status,503,"Invalid initial services should never initialize a new tenant");
   }
 });
 test("32 invalid accent color reverts to BOOKCORE default",async()=>{
