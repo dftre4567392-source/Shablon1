@@ -46,7 +46,32 @@ class HttpError extends Error{constructor(status,message){super(message);this.st
 const fail=(status,message)=>{throw new HttpError(status,message);};
 const clean=(s)=>String(s??"").trim().replace(/\s+/g," ").slice(0,150);
 const toNum=(v)=>Number(v);
-const validDate=(x)=>/^\d{4}-\d{2}-\d{2}$/.test(String(x))&&new Date(x+"T00:00:00Z").toISOString().slice(0,10)===x;
+const validDate=(x)=>{
+  if(typeof x!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(x))return false;
+  const parsed=new Date(x+"T00:00:00Z");
+  return Number.isFinite(parsed.getTime())&&parsed.toISOString().slice(0,10)===x;
+};
+function todayInStudio(){
+  const p=new Intl.DateTimeFormat("en-US",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+  const o=Object.fromEntries(p.map(x=>[x.type,x.value]));
+  return o.year+"-"+o.month+"-"+o.day;
+}
+function bookableDate(date){
+  if(!validDate(date))return false;
+  const today=Date.parse(todayInStudio()+"T00:00:00Z");
+  const d=Date.parse(date+"T00:00:00Z");
+  return d>=today&&d<=today+45*86400000;
+}
+function resolveServices(s,raw){
+  const values=Array.isArray(raw)?raw:typeof raw==="number"?[raw]:typeof raw==="string"?raw.split(","):[];
+  if(!values.length||values.length>6)return null;
+  const ids=values.map(Number);
+  if(ids.some(id=>!Number.isSafeInteger(id)||id<=0)||new Set(ids).size!==ids.length)return null;
+  const selected=ids.map(id=>s.services.find(x=>x.id===id&&x.active));
+  if(selected.some(x=>!x))return null;
+  return {ids,items:selected,minutes:selected.reduce((a,b)=>a+b.minutes,0),
+    price:selected.reduce((a,b)=>a+b.price,0),name:selected.map(x=>x.title).join(" + ")};
+}
 const validTime=(x)=>/^([01]\d|2[0-3]):[0-5]\d$/.test(String(x));
 const minutes=(t)=>t.split(":").map(Number).reduce((a,b)=>a*60+b);
 const pad=(i)=>String(i).padStart(2,"0");
@@ -126,26 +151,24 @@ function daySchedule(s,date){
   const day=(new Date(date+"T12:00:00Z").getUTCDay()+6)%7;
   return s.schedule.find(x=>x.weekday===day);
 }
-function slots(s,date,id,ignoreId=null){
-  if(!validDate(date))return [];
-  const svc=s.services.find(x=>x.id===Number(id)&&x.active);
-  if(!svc)return [];
+function slots(s,date,ids,ignoreId=null){
+  if(!bookableDate(date))return [];
+  const bundle=resolveServices(s,ids);
+  if(!bundle||bundle.minutes>600)return [];
   const sch=daySchedule(s,date);
-  if(!sch||!sch.active)return [];
-  const now=Date.now(),dayStart=utc(date,"00:00").getTime(),endLimit=now+45*86400000;
-  if(dayStart>endLimit||dayStart+86400000<now)return [];
-  const anyWholeBlock=s.blocks.some(x=>x.day===date&&!x.start_time);
-  if(anyWholeBlock)return [];
-  const list=[];
-  for(let m=minutes(sch.start_time);m+svc.minutes+15<=minutes(sch.end_time);m+=15){
-    const t=fmt(m),a=utc(date,t).getTime(),b=a+(svc.minutes+15)*60000;
-    if(a<now+4*3600000)continue;
-    if(m<15*60 && m+svc.minutes+15>14*60)continue;
-    if(s.blocks.some(x=>x.day===date&&x.start_time&&m<minutes(x.end_time)&&m+svc.minutes+15>minutes(x.start_time)))continue;
-    if(s.bookings.some(x=>x.id!==ignoreId&&x.status==="confirmed"&&a<Date.parse(x.busy_until)&&b>Date.parse(x.starts_at)))continue;
-    list.push(t);
+  if(!sch||!sch.active||!validTime(sch.start_time)||!validTime(sch.end_time))return [];
+  const now=Date.now();
+  if(s.blocks.some(x=>x.day===date&&!x.start_time))return [];
+  const result=[];
+  for(let m=minutes(sch.start_time);m+bundle.minutes+15<=minutes(sch.end_time);m+=15){
+    const time=fmt(m),start=utc(date,time).getTime(),end=start+(bundle.minutes+15)*60000;
+    if(start<now+4*3600000)continue;
+    if(m<15*60&&m+bundle.minutes+15>14*60)continue;
+    if(s.blocks.some(x=>x.day===date&&x.start_time&&m<minutes(x.end_time)&&m+bundle.minutes+15>minutes(x.start_time)))continue;
+    if(s.bookings.some(x=>x.id!==ignoreId&&x.status==="confirmed"&&start<Date.parse(x.busy_until)&&end>Date.parse(x.starts_at)))continue;
+    result.push(time);
   }
-  return list;
+  return result;
 }
 const toISO=(date,time)=>utc(date,time).toISOString();
 function timeRange(svc,date,time){const start=utc(date,time);return {starts_at:start.toISOString(),busy_until:new Date(start.getTime()+(svc.minutes+15)*60000).toISOString()};}
@@ -174,8 +197,11 @@ async function execute(req){
   }
   if(route==="/api/slots"&&method==="GET"){
     const {state}=await load();
-    const date=uri.searchParams.get("date")||"",service=uri.searchParams.get("service")||"";
-    return respond({date,slots:slots(state,date,service)});
+    const date=uri.searchParams.get("date")||"";
+    const services=uri.searchParams.get("services")||uri.searchParams.get("service")||"";
+    if(!validDate(date))return respond({date,slots:[],error:"INVALID_DATE"},400);
+    if(!bookableDate(date))return respond({date,slots:[],error:"DATE_OUT_OF_RANGE"},400);
+    return respond({date,slots:slots(state,date,services)});
   }
   if(route==="/bot/webhook"&&method==="POST"){
     if(!TOKEN||!process.env.TELEGRAM_WEBHOOK_SECRET||req.headers.get("x-telegram-bot-api-secret-token")!==process.env.TELEGRAM_WEBHOOK_SECRET)fail(403,"FORBIDDEN");
