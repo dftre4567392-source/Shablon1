@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
 import {createHarness,ids} from "./harness.mjs";
 
 async function named(h,user,name="Анастасия"){
@@ -259,4 +260,17 @@ test("24 late client cancellation/reschedule is blocked",async()=>{
   assert.equal((await h.post("/api/cancel",{id},ids.a)).status,409);
   assert.equal((await h.post("/api/reschedule",{id,date:h.openDay({min:15,max:30}),time:"10:00"},ids.a)).status,409);
   assert.equal((await h.post("/api/cancel",{id},ids.master)).status,200);
+});
+
+test("25 studio timezone handles Barnaul, Moscow and Amsterdam correctly",()=>{
+  const cases=[
+    ["Europe/Moscow","2026-11-20T07:00:00.000Z"],
+    ["Asia/Barnaul","2026-11-20T03:00:00.000Z"],
+    ["Europe/Amsterdam","2026-11-20T09:00:00.000Z"]
+  ];
+  for(const [timezone,expected] of cases){
+    const h=createHarness({timezone});
+    const instant=vm.runInContext('utc("2026-11-20","10:00").toISOString()',h.sandbox);
+    assert.equal(instant,expected,timezone);
+  }
 });
