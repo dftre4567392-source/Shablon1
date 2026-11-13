@@ -1,0 +1,29 @@
+name: BOOKCORE Vercel live verification
+on:
+  workflow_dispatch:
+  push:
+    paths: ['bookcore-vercel/**', '.github/workflows/bookcore-vercel-live.yml']
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Test Vercel HTTPS and private storage
+        run: |
+          set -euo pipefail
+          host="https://bookcore-telegram.vercel.app"
+          for i in $(seq 1 15); do
+            if curl -sS --fail --max-time 20 "$host/" -o /tmp/index.html; then break; fi
+            sleep 7
+          done
+          grep -q 'BOOKCORE' /tmp/index.html
+          echo "HTML_OK"
+          curl -sS --fail --max-time 30 "$host/api/handler?route=%2Fhealth" -o /tmp/health.json
+          cat /tmp/health.json
+          jq -e '.ok == true and .storage == true and .provider == "vercel"' /tmp/health.json
+          curl -sS --fail --max-time 30 "$host/api/handler?route=%2Fapi%2Fpublic" -o /tmp/public.json
+          jq -e '.services | length >= 5' /tmp/public.json
+          code=$(curl -sS -o /tmp/auth.json -w '%{http_code}' --max-time 30 -X POST             -H 'content-type: application/json' -d '{"date":"2026-12-01","time":"12:00","serviceId":1}'             "$host/api/handler?route=%2Fapi%2Fbook")
+          test "$code" = 401
+          jq -e '.error == "TELEGRAM_AUTH_REQUIRED"' /tmp/auth.json
+          echo "LIVE_SMOKE_PASS"
