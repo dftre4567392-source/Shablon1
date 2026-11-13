@@ -88,5 +88,5 @@ export function createHarness({forcedConflicts=0}={}){
   }
   const readStore=()=>storage===null?null:structuredClone(storage);
   function overrideStore(fn){const data=readStore();fn(data);storage=data;version++;}
-  return {request,post,signed,today,addDays,openDay,readStore,overrideStore,messages,botSettings,ids,sandbox};
+  return {request,post,signed,today,addDays,openDay,readStore,overrideStore,messages,botSettings,ids,sandbox,handler};
 }
