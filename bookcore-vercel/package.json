@@ -4,7 +4,10 @@
   "type": "module",
   "version": "1.0.0",
   "scripts": {
-    "check": "node --check index.html"
+    "check": "node scripts/check-syntax.mjs",
+    "test": "node --test --test-reporter=spec tests/api.integration.test.mjs tests/ui.unit.test.mjs",
+    "test:all": "npm run check && npm test",
+    "test:browser": "node --test --test-reporter=spec tests/browser.e2e.mjs"
   },
   "dependencies": {
     "@vercel/blob": "2.9.0"
