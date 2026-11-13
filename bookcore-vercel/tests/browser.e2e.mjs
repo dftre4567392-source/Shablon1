@@ -4,7 +4,7 @@ import fs from "node:fs";
 import {chromium} from "playwright";
 import {createHarness,ids} from "./harness.mjs";
 
-const URL="http://127.0.0.1:3125";
+const BASE_URL="http://127.0.0.1:3125";
 const dates=createHarness();
 const screenshots=new URL("../test-artifacts/",import.meta.url);
 fs.mkdirSync(screenshots,{recursive:true});
@@ -26,7 +26,7 @@ async function createContext(browser,id){
   page.on("dialog",dialog=>dialog.accept());
   const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
-  await page.goto(URL,{waitUntil:"domcontentloaded"});
+  await page.goto(BASE_URL,{waitUntil:"domcontentloaded"});
   return {page,context,errors};
 }
 async function navigate(page,label){
