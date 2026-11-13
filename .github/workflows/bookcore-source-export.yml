@@ -33,7 +33,7 @@ jobs:
           - bookcore-vercel/vercel.json — конфигурация Vercel.
           - bookcore-vercel/package.json — зависимости.
           - bookcore-vercel/customer-template — анкета и шаблоны для следующих заказчиков.
-          - bookcore-vercel/tests/ — 37 серверных/клиентских автотестов, Chromium E2E, временный тестовый сервер.
+          - bookcore-vercel/tests/ — 70 автоматических тест-кейсов, Chromium E2E, временный тестовый сервер.
           - bookcore-vercel/QA_REPORT.md — матрица тест-кейсов и результаты проверки.
           - bookcore-vercel/customer-template — формы, конфигурации и шаблоны новых услуг.
           - README.md — инструкции по изоляции заказчиков и проверкам.
