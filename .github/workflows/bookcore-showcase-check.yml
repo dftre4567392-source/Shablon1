@@ -1,0 +1,45 @@
+name: BOOKCORE Showcase static and browser checks
+on:
+  push:
+    paths:
+      - 'bookcore-showcase/**'
+      - '.github/workflows/bookcore-showcase-check.yml'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate HTML and inline script
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from html.parser import HTMLParser
+          import re
+          path=Path('bookcore-showcase/index.html')
+          text=path.read_text(encoding='utf-8')
+          assert '<!doctype html>' in text.lower()
+          assert 'id="demo"' in text and 'id="phoneContent"' in text
+          assert 'data-preset="tattoo"' in text and 'data-role="master"' in text
+          assert 'Демонстрация концепта' in text
+          assert 'https://bookcore-telegram.vercel.app' in text
+          script=re.search(r'<script>(.*?)</script>',text,re.S)
+          assert script, 'Inline JavaScript missing'
+          Path('/tmp/bookcore-showcase-script.js').write_text(script.group(1))
+          print('HTML_BYTES',len(text.encode('utf8')))
+          print('SCRIPT_BYTES',len(script.group(1).encode('utf8')))
+          class Parser(HTMLParser):pass
+          Parser().feed(text)
+          PY
+          node --check /tmp/bookcore-showcase-script.js
+      - name: Check local HTTP response
+        run: |
+          python3 -m http.server 8765 -d bookcore-showcase >/tmp/showcase-server.log 2>&1 &
+          for i in $(seq 1 10); do curl -fsS localhost:8765/ -o /tmp/index.html && break || sleep 1; done
+          grep -q 'BOOKCORE STUDIO' /tmp/index.html
+          echo "SHOWCASE_STATIC_PASS"
