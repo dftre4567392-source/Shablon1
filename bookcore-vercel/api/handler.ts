@@ -76,7 +76,21 @@ const validTime=(x)=>/^([01]\d|2[0-3]):[0-5]\d$/.test(String(x));
 const minutes=(t)=>t.split(":").map(Number).reduce((a,b)=>a*60+b);
 const pad=(i)=>String(i).padStart(2,"0");
 const fmt=(m)=>pad(Math.floor(m/60))+":"+pad(m%60);
-function utc(date,time){const [y,mo,d]=date.split("-").map(Number),[h,m]=time.split(":").map(Number);return new Date(Date.UTC(y,mo-1,d,h-3,m));}
+// Interpret appointment hours in the studio's IANA timezone, not a hardcoded UTC+3.
+const studioFormatter=new Intl.DateTimeFormat("en-US",{timeZone:TZ,
+  year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"});
+function utc(date,time){
+  const [y,mo,d]=date.split("-").map(Number),[h,m]=time.split(":").map(Number);
+  const intended=Date.UTC(y,mo-1,d,h,m);
+  let guess=intended;
+  for(let i=0;i<4;i++){
+    const entries=Object.fromEntries(studioFormatter.formatToParts(new Date(guess)).map(x=>[x.type,x.value]));
+    const actual=Date.UTC(Number(entries.year),Number(entries.month)-1,Number(entries.day),Number(entries.hour),Number(entries.minute));
+    if(actual===intended)break;
+    guess+=intended-actual;
+  }
+  return new Date(guess);
+}
 function seed(){return {
  users:{},
  services:[
