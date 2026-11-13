@@ -64,18 +64,35 @@ function seed(){return {
  schedule:[0,1,2,3,4,5,6].map(weekday=>({weekday,start_time:"10:00",end_time:"19:00",active:weekday>=1&&weekday<=5})),
  blocks:[],bookings:[],seq:1
 };}
-async function load(){
+async function getMetadata(){
+  try{return await head(PATH);}
+  catch(e){if(/not found|does not exist|404/i.test(String(e?.message||e)))return null;throw e;}
+}
+async function load({forWrite=false}={}){
   if(!process.env.BLOB_READ_WRITE_TOKEN) fail(503,"STORAGE_NOT_CONFIGURED");
-  // Must bypass Blob CDN on a mutable JSON file; cached ETags cause permanent 412 retries.
-  const result=await get(PATH,{access:"private",useCache:false});
-  if(!result)return {state:seed(),etag:null};
-  if(result.statusCode!==200||!result.stream)fail(503,"STORAGE_READ_FAILED");
-  const raw=await new Response(result.stream).text();
-  return {state:JSON.parse(raw),etag:result.blob.etag};
+  for(let attempt=0;attempt<(forWrite?5:1);attempt++){
+    // The get() response ETag is a different value from the canonical head() ETag in this store.
+    // Check metadata both before and after the uncached read to avoid lost updates.
+    const before=forWrite?await getMetadata():null;
+    const result=await get(PATH,{access:"private",useCache:false});
+    if(!result){
+      const after=forWrite?await getMetadata():null;
+      if(after)continue;
+      return {state:seed(),etag:null};
+    }
+    if(result.statusCode!==200||!result.stream)fail(503,"STORAGE_READ_FAILED");
+    const raw=await new Response(result.stream).text();
+    const state=JSON.parse(raw);
+    if(!forWrite)return {state,etag:null};
+    const after=await getMetadata();
+    if(before?.etag===after?.etag)return {state,etag:after?.etag||null};
+    await new Promise(ok=>setTimeout(ok,50*(attempt+1)));
+  }
+  fail(503,"STORAGE_CHANGED_DURING_READ");
 }
 async function mutate(fn){
   for(let i=0;i<12;i++){
-    const {state,etag}=await load();
+    const {state,etag}=await load({forWrite:true});
     const output=await fn(state);
     try {
       await put(PATH,JSON.stringify(state),{access:"private",contentType:"application/json",allowOverwrite:!!etag,...(etag?{ifMatch:etag}:{}) ,cacheControlMaxAge:60});
