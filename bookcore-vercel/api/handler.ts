@@ -49,6 +49,7 @@ const respond=(payload,status=200)=>new Response(JSON.stringify(payload),{status
 class HttpError extends Error{constructor(status,message){super(message);this.status=status;}}
 const fail=(status,message)=>{throw new HttpError(status,message);};
 const clean=(s)=>String(s??"").trim().replace(/\s+/g," ").slice(0,150);
+const validPersonName=(name)=>name.length>=2&&name.length<=50&&!/[<>\p{Cc}\p{Cf}]/u.test(name)&&(name.match(/\p{L}/gu)||[]).length>=2;
 const toNum=(v)=>Number(v);
 const validDate=(x)=>{
   if(typeof x!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(x))return false;
@@ -59,6 +60,12 @@ function todayInStudio(){
   const p=new Intl.DateTimeFormat("en-US",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
   const o=Object.fromEntries(p.map(x=>[x.type,x.value]));
   return o.year+"-"+o.month+"-"+o.day;
+}
+function blockableDate(day){
+  if(!validDate(day))return false;
+  const today=Date.parse(todayInStudio()+"T00:00:00Z");
+  const target=Date.parse(day+"T00:00:00Z");
+  return target>=today&&target<=today+365*86400000;
 }
 function bookableDate(date){
   if(!validDate(date))return false;
@@ -294,7 +301,7 @@ async function execute(req){
   }
   if(route==="/api/name"&&method==="POST"){
     const b=await body(req),name=clean(b.name);
-    if(name.length<2||name.length>50||/[<>]/.test(name))fail(400,"Введите имя от 2 до 50 символов");
+    if(!validPersonName(name))fail(400,"Введите имя от 2 до 50 символов, без скрытых символов");
     await mutate(s=>{s.users[auth.id]={client_name:name,created_at:s.users[auth.id]?.created_at||new Date().toISOString()};return true;});
     return respond({ok:true,name});
   }
@@ -363,7 +370,7 @@ async function execute(req){
   }
   if(route==="/api/block"&&method==="POST"){
     const b=await body(req),day=String(b.day||""),start=b.startTime||null,end=b.endTime||null;
-    if(!validDate(day)||(start||end)&&(!validTime(start)||!validTime(end)||minutes(start)>=minutes(end)))fail(400,"INVALID_BLOCK");
+    if(!blockableDate(day)||(start||end)&&(!validTime(start)||!validTime(end)||minutes(start)>=minutes(end)))fail(400,"INVALID_BLOCK");
     const block=await mutate(s=>{
       const a=utc(day,start||"00:00").getTime(),z=utc(day,end||"23:59").getTime();
       const count=s.bookings.filter(b=>b.status==="confirmed"&&Date.parse(b.starts_at)<z&&Date.parse(b.busy_until)>a).length;
@@ -381,7 +388,20 @@ async function execute(req){
   if(route==="/api/schedule"&&method==="POST"){
     const b=await body(req);
     if(!Number.isInteger(b.weekday)||b.weekday<0||b.weekday>6||!validTime(b.start)||!validTime(b.end)||minutes(b.start)>=minutes(b.end))fail(400,"INVALID_SCHEDULE");
-    await mutate(s=>{const item=s.schedule.find(x=>x.weekday===b.weekday);Object.assign(item,{start_time:b.start,end_time:b.end,active:!!b.active});return true;});
+    await mutate(s=>{
+      // Changes must not silently invalidate confirmed future appointments.
+      for(const appointment of s.bookings){
+        if(appointment.status!=="confirmed"||Date.parse(appointment.busy_until)<=Date.now())continue;
+        const entries=Object.fromEntries(studioFormatter.formatToParts(new Date(appointment.starts_at)).map(x=>[x.type,x.value]));
+        const localDay=entries.year+"-"+entries.month+"-"+entries.day;
+        if((new Date(localDay+"T12:00:00Z").getUTCDay()+6)%7!==b.weekday)continue;
+        const start=utc(localDay,b.start).getTime(),end=utc(localDay,b.end).getTime();
+        if(!b.active||Date.parse(appointment.starts_at)<start||Date.parse(appointment.busy_until)>end)fail(409,"EXISTING_BOOKINGS");
+      }
+      const item=s.schedule.find(x=>x.weekday===b.weekday);
+      Object.assign(item,{start_time:b.start,end_time:b.end,active:!!b.active});
+      return true;
+    });
     return respond({ok:true});
   }
   if(route==="/api/service"&&method==="POST"){
@@ -393,7 +413,7 @@ async function execute(req){
   }
   if(route==="/api/manual-book"&&method==="POST"){
     const b=await body(req),date=String(b.date||""),time=String(b.time||""),name=clean(b.name);
-    if(name.length<2||!bookableDate(date)||!validTime(time))fail(400,"INVALID_MANUAL_BOOKING");
+    if(!validPersonName(name)||!bookableDate(date)||!validTime(time))fail(400,"INVALID_MANUAL_BOOKING");
     const appointment=await mutate(s=>{
       const bundle=resolveServices(s,b.serviceIds??b.serviceId);
       if(!bundle||bundle.minutes>600)fail(400,"INVALID_SERVICES");
@@ -408,7 +428,14 @@ async function execute(req){
   if(route==="/api/status"&&method==="POST"){
     const b=await body(req);
     if(!["completed","no_show","cancelled_by_master"].includes(b.status))fail(400,"INVALID_STATUS");
-    const x=await mutate(s=>{const item=s.bookings.find(x=>x.id===b.id);if(!item)fail(404,"NOT_FOUND");item.status=b.status;return {...item};});
+    const x=await mutate(s=>{
+      const item=s.bookings.find(x=>x.id===b.id);
+      if(!item)fail(404,"NOT_FOUND");
+      if(item.status!=="confirmed")fail(409,"NOT_ACTIVE");
+      if(b.status!=="cancelled_by_master"&&Date.parse(item.starts_at)>Date.now())fail(409,"APPOINTMENT_NOT_STARTED");
+      item.status=b.status;
+      return {...item};
+    });
     if(b.status==="cancelled_by_master")await notify(x.telegram_id,"Мастер отменил вашу запись.");
     return respond({ok:true});
   }
