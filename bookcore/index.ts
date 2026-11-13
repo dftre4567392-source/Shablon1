@@ -112,7 +112,21 @@ async function handler(req) {
     let dbOK=false; try{if(db){await q("SELECT 1");dbOK=true;}}catch{}
     return j({ok:true,database:dbOK,telegramConfigured:!!TOKEN,masterConfigured:!!MASTER});
   }
-  if(path==="/" || path==="/index.html") return new Response(PAGE,{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-cache","x-content-type-options":"nosniff"}});
+  if(path==="/" || path==="/index.html") {
+    const htmlEsc = (value) => String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const hex = (name, fallback) => /^#[0-9a-fA-F]{6}$/.test(ENV[name] || "") ? ENV[name] : fallback;
+    const primary = hex("THEME_PRIMARY","#513548");
+    const accent = hex("THEME_ACCENT","#8f5c79");
+    const background = hex("THEME_BACKGROUND","#f8f3f6");
+    const surface = hex("THEME_SURFACE","#ffffff");
+    const style = '<style>body{background:'+background+'!important}.btn:not(.soft):not(.line){background:'+primary+'!important}.hero{background:linear-gradient(120deg,'+primary+','+accent+')!important}.dock button.active{color:'+accent+'!important}.card,.item{background:'+surface+'!important}</style>';
+    const html = PAGE.replace('<div class="logo">✦ BOOKCORE</div>','<div class="logo">✦ '+htmlEsc(STUDIO)+'</div>')
+      .replace("LASH & BEAUTY", htmlEsc(ENV.TENANT_CATEGORY || "LASH & BEAUTY"))
+      .replace("Красивый взгляд начинается здесь", htmlEsc(ENV.TENANT_HERO_TITLE || "Красивый взгляд начинается здесь"))
+      .replace("Твоя красота — наша забота. Выбирай процедуру и удобное время без переписок.", htmlEsc(ENV.TENANT_HERO_SUBTITLE || "Твоя красота — наша забота. Выбирай процедуру и удобное время без переписок."))
+      .replace("</head>", style+"</head>");
+    return new Response(html,{headers:{"content-type":"text/html; charset=utf-8","cache-control":"no-cache","x-content-type-options":"nosniff"}});
+  }
   if(path==="/bot/webhook" && method==="POST"){
     if(!TOKEN || !ENV.TELEGRAM_WEBHOOK_SECRET || req.headers.get("x-telegram-bot-api-secret-token")!==ENV.TELEGRAM_WEBHOOK_SECRET) return err("FORBIDDEN",403);
     const event=await parse(req), message=event.message;
