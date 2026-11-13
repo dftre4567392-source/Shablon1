@@ -1,0 +1,46 @@
+name: BOOKCORE real-browser mobile E2E tests
+on:
+  push:
+    paths:
+      - 'bookcore-vercel/index.html'
+      - 'bookcore-vercel/api/handler.ts'
+      - 'bookcore-vercel/tests/**'
+      - '.github/workflows/bookcore-browser-e2e.yml'
+  workflow_dispatch:
+
+jobs:
+  mobile-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Playwright test browser
+        run: |
+          npm install --prefix bookcore-vercel --no-save --ignore-scripts playwright@1.56.1
+          cd bookcore-vercel
+          npx playwright install --with-deps chromium
+      - name: Start disposable staging API and UI
+        run: |
+          PORT=3125 node bookcore-vercel/tests/preview-server.mjs >/tmp/bookcore-stage.log 2>&1 &
+          echo $! >/tmp/bookcore-stage.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3125/ -o /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3125/ >/dev/null
+      - name: Run real Chromium client and master scenarios
+        run: |
+          node --test --test-reporter=spec bookcore-vercel/tests/browser.e2e.mjs
+      - name: Upload screenshots and diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BOOKCORE-mobile-browser-report
+          path: |
+            bookcore-vercel/test-artifacts/
+            /tmp/bookcore-stage.log
+          if-no-files-found: warn
+          retention-days: 7
