@@ -33,6 +33,8 @@ jobs:
           - bookcore-vercel/vercel.json — конфигурация Vercel.
           - bookcore-vercel/package.json — зависимости.
           - bookcore-vercel/customer-template — анкета и шаблоны для следующих заказчиков.
+          - bookcore-vercel/tests/ — 37 серверных/клиентских автотестов, Chromium E2E, временный тестовый сервер.
+          - bookcore-vercel/QA_REPORT.md — матрица тест-кейсов и результаты проверки.
 
           Адрес: https://bookcore-telegram.vercel.app
           GitHub: https://github.com/dftre4567392-source/Shablon1/tree/main/bookcore-vercel
