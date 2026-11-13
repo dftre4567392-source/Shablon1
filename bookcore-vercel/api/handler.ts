@@ -179,7 +179,7 @@ async function notify(chat,text,reply_markup){
 function prettyDate(value){return new Date(value).toLocaleString("ru-RU",{timeZone:TZ,dateStyle:"medium",timeStyle:"short"});}
 async function body(req){try{return await req.json()}catch{return {};}}
 function secureUser(a){return {role:a.master?"master":"client"};}
-function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status, ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
+function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status, ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
 async function execute(req){
   const uri=new URL(req.url);
   const route=uri.searchParams.get("route")||"/health";
@@ -269,19 +269,23 @@ async function execute(req){
     return respond({bookings:rows.map(listBooking)});
   }
   if(route==="/api/book"&&method==="POST"){
-    const b=await body(req),date=String(b.date||""),time=String(b.time||""),id=Number(b.serviceId);
-    if(!validDate(date)||!validTime(time))fail(400,"INVALID_DATE_TIME");
+    const b=await body(req),date=String(b.date||""),time=String(b.time||"");
+    if(!bookableDate(date)||!validTime(time))fail(400,"INVALID_DATE_TIME");
+    const requested=b.serviceIds??b.serviceId;
     const saved=await mutate(s=>{
       const name=s.users[auth.id]?.client_name;
       if(!name)fail(409,"NAME_REQUIRED");
-      const svc=s.services.find(x=>x.id===id&&x.active);
-      if(!svc||!slots(s,date,id).includes(time))fail(409,"TIME_NOT_AVAILABLE");
-      const appointment={id:randomUUID(),tenant:"default",telegram_id:auth.id,name,service_id:svc.id,service_name:svc.title,price:svc.price,...timeRange(svc,date,time),status:"confirmed",created_at:new Date().toISOString()};
+      const bundle=resolveServices(s,requested);
+      if(!bundle||bundle.minutes>600)fail(400,"INVALID_SERVICES");
+      if(!slots(s,date,bundle.ids).includes(time))fail(409,"TIME_NOT_AVAILABLE");
+      const appointment={id:randomUUID(),tenant:"default",telegram_id:auth.id,name,
+        service_id:bundle.ids[0],service_ids:bundle.ids,service_name:bundle.name,
+        price:bundle.price,...timeRange(bundle,date,time),status:"confirmed",created_at:new Date().toISOString()};
       s.bookings.push(appointment);
       return appointment;
     });
     await notify(auth.id,"Запись подтверждена!\n"+saved.service_name+"\n"+prettyDate(saved.starts_at));
-    if(MASTER)await notify(MASTER,"Новая запись: "+saved.name+"\n"+prettyDate(saved.starts_at));
+    if(MASTER)await notify(MASTER,"Новая запись: "+saved.name+"\n"+saved.service_name+"\n"+prettyDate(saved.starts_at));
     return respond({ok:true,id:saved.id});
   }
   if(route==="/api/cancel"&&method==="POST"){
@@ -307,9 +311,9 @@ async function execute(req){
       if(x.status!=="confirmed")fail(409,"NOT_ACTIVE");
       if(!auth.master&&x.telegram_id!==auth.id)fail(403,"FORBIDDEN");
       if(!auth.master&&Date.parse(x.starts_at)-Date.now()<12*3600000)fail(409,"TOO_LATE_TO_RESCHEDULE");
-      const svc=s.services.find(z=>z.id===x.service_id);
-      if(!svc||!slots(s,date,svc.id,x.id).includes(time))fail(409,"TIME_NOT_AVAILABLE");
-      Object.assign(x,timeRange(svc,date,time));return {...x};
+      const bundle=resolveServices(s,x.service_ids||[x.service_id]);
+      if(!bundle||!slots(s,date,bundle.ids,x.id).includes(time))fail(409,"TIME_NOT_AVAILABLE");
+      Object.assign(x,timeRange(bundle,date,time));return {...x};
     });
     await notify(booking.telegram_id,"Запись перенесена: "+prettyDate(booking.starts_at));
     if(!auth.master)await notify(MASTER,"Клиент перенёс запись: "+booking.name);
@@ -353,12 +357,17 @@ async function execute(req){
     return respond({ok:true});
   }
   if(route==="/api/manual-book"&&method==="POST"){
-    const b=await body(req),date=String(b.date||""),time=String(b.time||""),name=clean(b.name),sid=Number(b.serviceId);
-    if(name.length<2||!validDate(date)||!validTime(time))fail(400,"INVALID_MANUAL_BOOKING");
-    const appointment=await mutate(s=>{const svc=s.services.find(x=>x.id===sid&&x.active);
-      if(!svc||!slots(s,date,sid).includes(time))fail(409,"TIME_NOT_AVAILABLE");
-      const x={id:randomUUID(),tenant:"default",telegram_id:null,name,service_id:svc.id,service_name:svc.title,price:svc.price,...timeRange(svc,date,time),status:"confirmed",created_at:new Date().toISOString()};
-      s.bookings.push(x);return x;});
+    const b=await body(req),date=String(b.date||""),time=String(b.time||""),name=clean(b.name);
+    if(name.length<2||!bookableDate(date)||!validTime(time))fail(400,"INVALID_MANUAL_BOOKING");
+    const appointment=await mutate(s=>{
+      const bundle=resolveServices(s,b.serviceIds??b.serviceId);
+      if(!bundle||bundle.minutes>600)fail(400,"INVALID_SERVICES");
+      if(!slots(s,date,bundle.ids).includes(time))fail(409,"TIME_NOT_AVAILABLE");
+      const x={id:randomUUID(),tenant:"default",telegram_id:null,name,
+        service_id:bundle.ids[0],service_ids:bundle.ids,service_name:bundle.name,
+        price:bundle.price,...timeRange(bundle,date,time),status:"confirmed",created_at:new Date().toISOString()};
+      s.bookings.push(x);return x;
+    });
     return respond({ok:true,id:appointment.id});
   }
   if(route==="/api/status"&&method==="POST"){
