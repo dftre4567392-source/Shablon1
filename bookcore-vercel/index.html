@@ -67,6 +67,11 @@ function studioToday(){
   const v=Object.fromEntries(p.map(x=>[x.type,x.value]));
   return v.year+"-"+v.month+"-"+v.day;
 }
+function visibleDate(date){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return "";
+  const d=new Date(date+"T12:00:00Z");
+  return Number.isFinite(d.getTime())?new Intl.DateTimeFormat("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}).format(d):"";
+}
 function studioMaxDate(){
   const day=new Date(studioToday()+"T00:00:00Z");
   day.setUTCDate(day.getUTCDate()+45);
@@ -90,9 +95,9 @@ function changeMonth(delta){
   const next=current.toISOString().slice(0,7)+"-01";
   if(next<studioToday().slice(0,7)+"-01"||next>studioMaxDate().slice(0,7)+"-01")return;
   state.calendarMonth=next;
-  render();
+  if(rescheduling)renderMoveCalendar();else render();
 }
-function calendarMarkup(){
+function calendarMarkup(mode="booking"){
   const month=visibleMonth();
   const view=new Date(month+"T00:00:00Z");
   const y=view.getUTCFullYear(),m=view.getUTCMonth();
@@ -100,17 +105,17 @@ function calendarMarkup(){
   const length=new Date(Date.UTC(y,m+1,0)).getUTCDate();
   const previous=month>studioToday().slice(0,7)+"-01";
   const next=month<studioMaxDate().slice(0,7)+"-01";
-  const title=new Intl.DateTimeFormat("ru-RU",{month:"long",year:"numeric",timeZone:"UTC"}).format(view);
+  const title=new Intl.DateTimeFormat("ru-RU",{month:"long",timeZone:"UTC"}).format(view);
   const week=["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(w=>'<span class="cal-weekday">'+w+'</span>').join("");
   let days="";
   for(let i=0;i<offset;i++)days+='<span class="cal-empty" aria-hidden="true"></span>';
   for(let day=1;day<=length;day++){
     const date=y+"-"+String(m+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");
     const enabled=validCalendarDate(date);
-    const active=state.date===date;
+    const active=(mode==="move"?rescheduling?.date:state.date)===date;
     const today=date===studioToday();
     days+='<button type="button" class="cal-day'+(active?" chosen":"")+(today?" today":"")+'"'+
-      (enabled?' onclick="selectDate(\''+date+'\')"':' disabled')+
+      (enabled?' onclick="'+(mode==="move"?"selectMoveDate":"selectDate")+'(\''+date+'\')"':' disabled')+
       ' aria-label="'+esc(date)+'" aria-pressed="'+active+'">'+day+'</button>';
   }
   return '<div class="book-calendar"><div class="cal-header"><button type="button" class="cal-nav" onclick="changeMonth(-1)"'+(previous?"":" disabled")+' aria-label="Предыдущий месяц">‹</button>'+
@@ -173,7 +178,7 @@ if(state.page==="booking"){
     '<div class="sub" style="margin:15px 0 9px">Свободное время</div>'+
     '<div class="flex" id="slotList">'+slotsMarkup()+'</div></div>'+
     '<div class="card" style="margin-top:15px"><div class="row"><b>Итого</b><b>'+rub(total.price)+'</b></div>'+
-    '<div class="sub" style="margin-top:8px">'+(state.date?'Дата: '+esc(state.date):'Дата ещё не выбрана')+
+    '<div class="sub" style="margin-top:8px">'+(state.date?'Дата: '+esc(visibleDate(state.date)):'Дата ещё не выбрана')+
     (state.time?', время: '+esc(state.time):'')+'</div>'+
     '<button type="button" class="btn full" style="margin-top:14px" '+
     (!total.count||!state.time||!initial||!state.public.ready||state.bookingPending?"disabled":"")+
@@ -185,7 +190,7 @@ if(state.page==="booking"){
 if(state.page==="visits")return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':state.bookings.length?state.bookings.map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>');
 return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>';}
 function bookingCard(b){
-  const date=new Date(b.starts_at).toLocaleString("ru-RU",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Moscow"});
+  const date=new Date(b.starts_at).toLocaleString("ru-RU",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZone:state.public?.timezone||"Europe/Moscow"});
   const quote=String.fromCharCode(39);
   const actions=b.status==="confirmed"?'<div class="flex"><button class="btn line" onclick="rescheduleForm('+quote+b.id+quote+','+JSON.stringify(b.service_ids||[b.service_id])+')">Перенести</button><button class="btn line" onclick="cancelBooking('+quote+b.id+quote+')">Отменить</button></div>':"";
   return '<div class="card" style="margin-bottom:10px"><div class="row"><b>'+esc(b.service_name)+'</b><span class="pill">'+esc(b.status)+'</span></div><div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b>'+actions+'</div></div>';
@@ -247,7 +252,20 @@ async function saveSchedule(){
 let rescheduling=null;
 function rescheduleForm(id,serviceIds){
   rescheduling={id,serviceIds,date:"",time:""};
-  el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><h2>Перенос записи</h2><p class="sub">Выберите новую дату и свободное время.</p><input id="moveDate" type="date" class="field" onchange="loadMoveSlots(this.value)"/><div id="moveSlots" class="flex"></div><div class="flex" style="margin-top:15px"><button class="btn" id="moveSave" disabled onclick="submitMove()">Сохранить перенос</button><button class="btn line" onclick="el('+"'"+'modalRoot'+"'"+').innerHTML='+"'"+""+"'"+'">Закрыть</button></div></div></div>';
+  state.calendarMonth=studioToday().slice(0,7)+"-01";
+  el("modalRoot").innerHTML='<div class="overlay"><div class="modal">'+
+    '<h2>Перенос записи</h2><p class="sub">Выберите новую дату и свободное время.</p>'+
+    '<div id="moveCalendar">'+calendarMarkup("move")+'</div><div id="moveSlots" class="flex" style="margin-top:13px"></div>'+
+    '<div class="flex" style="margin-top:15px"><button class="btn" id="moveSave" disabled onclick="submitMove()">Сохранить перенос</button>'+
+    '<button class="btn line" onclick="closeMoveModal()">Закрыть</button></div></div></div>';
+}
+function closeMoveModal(){rescheduling=null;el("modalRoot").innerHTML="";}
+function renderMoveCalendar(){
+  const target=el("moveCalendar");if(target&&rescheduling)target.innerHTML=calendarMarkup("move");
+}
+function selectMoveDate(date){
+  if(!rescheduling||!validCalendarDate(date))return;
+  rescheduling.date=date;rescheduling.time="";renderMoveCalendar();void loadMoveSlots(date);
 }
 async function loadMoveSlots(date){
   if(!rescheduling)return;
@@ -262,7 +280,7 @@ function chooseMoveTime(time){
 }
 async function submitMove(){
   if(!rescheduling||!rescheduling.time)return;
-  try{await api("/api/reschedule",{method:"POST",body:JSON.stringify({id:rescheduling.id,date:rescheduling.date,time:rescheduling.time})});el("modalRoot").innerHTML="";rescheduling=null;if(isMaster())loadMaster();else loadBookings();}
+  try{await api("/api/reschedule",{method:"POST",body:JSON.stringify({id:rescheduling.id,date:rescheduling.date,time:rescheduling.time})});closeMoveModal();if(isMaster())loadMaster();else loadBookings();}
   catch(e){fail("Не удалось перенести запись: "+e.message);}
 }
 async function loadMaster(){if(!isMaster())return;try{state.master=await api("/api/master");render()}catch(e){fail(e.message)}}
