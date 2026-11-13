@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "scripts": {
     "check": "node scripts/check-syntax.mjs",
-    "test": "node --test --test-reporter=spec tests/api.integration.test.mjs tests/ui.unit.test.mjs",
+    "test": "node --test --test-reporter=spec tests/*.test.mjs",
     "test:all": "npm run check && npm test",
     "test:browser": "node --test --test-reporter=spec tests/browser.e2e.mjs"
   },
