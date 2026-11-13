@@ -86,7 +86,7 @@ test("Real Chromium mobile: client + master full booking scenario", {timeout:110
     // Guest cannot bypass authenticated booking.
     const guest=await createContext(browser,null);
     await navigate(guest.page,"Запись");
-    assert.match(await guest.page.locator("#main").innerText(),/Откройте приложение через Telegram-бота/);
+    assert.match(await guest.page.locator("#main").innerText(),/[Оо]ткройте приложение через Telegram-бота/);
     assert.equal(guest.errors.length,0);
     await guest.context.close();
     // Master must land on dashboard and can operate schedule and manual bookings.
