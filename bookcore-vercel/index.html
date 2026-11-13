@@ -18,6 +18,11 @@
 .cal-day:focus-visible,.service:focus-visible{outline:2px solid #946080;outline-offset:2px}
 .cal-caption{text-align:center;color:#9c8495;font-size:11px;margin-top:11px;line-height:1.5}
 
+:root{--bookcore-brand:#513548}
+.btn:not(.soft):not(.line){background:var(--bookcore-brand)}
+.chip.active,.cal-day.chosen{background:var(--bookcore-brand);border-color:var(--bookcore-brand)}
+.service.selected{border-color:var(--bookcore-brand)}
+.hero{background:linear-gradient(120deg,var(--bookcore-brand),#8f5c79 60%,#d8b5c7)}
 </style></head><body><main class="wrap"><div class="top"><div><div class="logo">✦ BOOKCORE</div><div class="tiny">BEAUTY APPOINTMENTS</div></div><div class="circle">✿</div></div><div id="main"><div class="empty">Загружаем студию…</div></div></main><nav id="dock" class="dock"></nav><div id="modalRoot"></div><script>
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
@@ -29,7 +34,7 @@ const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
 function fail(msg){alert(msg);}
 async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json();if(!r.ok)throw new Error(x.error||"Ошибка сервера");return x;}
 const isMaster=()=>state.me&&state.me.role==="master";
-async function init(){try{state.public=await api("/api/public");if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}render();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
+async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}render();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
 function route(p){state.page=p;render();if(p==="visits")loadBookings();if(p==="calendar"||p==="clients"||p==="settings"||p==="overview")loadMaster();}
 function nav(){const n=isMaster()?[["overview","⌂","Обзор"],["calendar","▦","Календарь"],["clients","♧","Клиенты"],["settings","⚙","Настройки"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
 function selectedServices(){
