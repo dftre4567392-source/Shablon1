@@ -66,7 +66,8 @@ function seed(){return {
 };}
 async function load(){
   if(!process.env.BLOB_READ_WRITE_TOKEN) fail(503,"STORAGE_NOT_CONFIGURED");
-  const result=await get(PATH,{access:"private"});
+  // Must bypass Blob CDN on a mutable JSON file; cached ETags cause permanent 412 retries.
+  const result=await get(PATH,{access:"private",useCache:false});
   if(!result)return {state:seed(),etag:null};
   if(result.statusCode!==200||!result.stream)fail(503,"STORAGE_READ_FAILED");
   const raw=await new Response(result.stream).text();
@@ -82,6 +83,7 @@ async function mutate(fn){
     }catch(e){
       const reason=String(e?.message||e);
       if(e instanceof BlobPreconditionFailedError || /already exists|precondition|conflict|412|409|blob_already/i.test(reason)){
+        console.warn("BOOKCORE_STORAGE_CONFLICT_RETRY",i+1);
         await new Promise(ok=>setTimeout(ok,20+i*80));
         continue;
       }
