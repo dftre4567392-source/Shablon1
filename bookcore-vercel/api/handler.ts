@@ -83,7 +83,7 @@ async function mutate(fn){
     }catch(e){
       const reason=String(e?.message||e);
       if(e instanceof BlobPreconditionFailedError || /already exists|precondition|conflict|412|409|blob_already/i.test(reason)){
-        console.warn("BOOKCORE_STORAGE_CONFLICT_RETRY",i+1);
+        console.warn("BOOKCORE_STORAGE_CONFLICT_RETRY",i+1,JSON.stringify({readHasEtag:!!etag,etagLength:etag?.length||0,errorType:e?.name||"Unknown",errorCode:e?.code||null,message:reason.slice(0,170)}));
         await new Promise(ok=>setTimeout(ok,20+i*80));
         continue;
       }
