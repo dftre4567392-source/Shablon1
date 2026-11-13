@@ -335,7 +335,7 @@ test("30 invalid customer storage path is rejected before API startup",()=>{
     assert.throws(()=>createHarness({storagePath:badPath}),/INVALID_BOOKCORE_STORAGE_PATH/);
   }
 });
-test("31 malformed or unsafe customer service catalog is rejected",()=>{
+test("31 malformed or unsafe customer service catalog is rejected",async()=>{
   const invalid=[
     [], Array.from({length:31},(_,n)=>({title:"Service "+n,minutes:60,price:1000})),
     [{title:"x",minutes:60,price:300}],
