@@ -30,7 +30,8 @@ async function ensureBotSetup(){
       const bot=await botCall("getMe",{});
       await Promise.all([
         botCall("setWebhook",{url:webhook,secret_token:process.env.TELEGRAM_WEBHOOK_SECRET,allowed_updates:["message"]}),
-        botCall("setChatMenuButton",{menu_button:{type:"web_app",text:"Открыть BOOKCORE",web_app:{url:url.origin}}})
+        botCall("setChatMenuButton",{menu_button:{type:"web_app",text:"Открыть BOOKCORE",web_app:{url:url.origin}}}),
+        botCall("setMyCommands",{commands:[{command:"start",description:"Приветствие и онлайн-запись"},{command:"id",description:"Узнать свой Telegram ID"},{command:"help",description:"Как пользоваться BOOKCORE"}]})
       ]);
       console.info("BOOKCORE_TELEGRAM_BOT_CONFIGURED",bot.username||"");
       return {configured:true,username:bot.username||null};
@@ -159,11 +160,29 @@ async function execute(req){
   if(route==="/bot/webhook"&&method==="POST"){
     if(!TOKEN||!process.env.TELEGRAM_WEBHOOK_SECRET||req.headers.get("x-telegram-bot-api-secret-token")!==process.env.TELEGRAM_WEBHOOK_SECRET)fail(403,"FORBIDDEN");
     const event=await body(req);
-    if(event.message&&/^\/start(?:\s|$)/.test(event.message.text||"")){
-      const message=event.message;
-      const userId=String(message.from?.id||message.chat.id);
-      const replyMarkup=APP_URL&&message.chat.type==="private"?{inline_keyboard:[[{text:"Открыть BOOKCORE",web_app:{url:APP_URL}}]]}:undefined;
-      await notify(message.chat.id,"Добро пожаловать в BOOKCORE!\nВаш Telegram ID: "+userId+"\nДля записи откройте мини-приложение.",replyMarkup);
+    const message=event.message;
+    if(message&&message.chat?.type==="private"){
+      const text=String(message.text||"").trim();
+      const command=text.split(/\s+/)[0].split("@")[0].toLowerCase();
+      const firstName=clean(message.from?.first_name||"");
+      const greeting=firstName?"Здравствуйте, "+firstName+"!":"Здравствуйте!";
+      const replyMarkup=APP_URL?{inline_keyboard:[[{text:"📅 Открыть онлайн-запись",web_app:{url:APP_URL}}]]}:undefined;
+      if(command==="/start"||command==="/help"){
+        await notify(message.chat.id,
+          "✨ BOOKCORE | Онлайн-запись\n\n"+
+          greeting+" Добро пожаловать в "+STUDIO+"! 💗\n\n"+
+          "Здесь вы можете:\n"+
+          "🌸 Посмотреть процедуры и цены\n"+
+          "📆 Выбрать свободную дату и время\n"+
+          "✅ Записаться без ожидания ответа\n"+
+          "💌 Посмотреть свои записи, перенести или отменить их\n\n"+
+          "Нажмите кнопку ниже, чтобы выбрать удобное время. 👇",
+          replyMarkup);
+      }else if(command==="/id"){
+        await notify(message.chat.id,"🪪 Ваш Telegram ID: "+String(message.from?.id||message.chat.id)+"\n\nЭтот номер можно использовать для настройки доступа мастера.");
+      }else if(text){
+        await notify(message.chat.id,"Чтобы записаться на процедуру, нажмите кнопку ниже. 💗\n\nКоманды: /start — приветствие, /id — ваш Telegram ID.",replyMarkup);
+      }
     }
     return respond({ok:true});
   }
