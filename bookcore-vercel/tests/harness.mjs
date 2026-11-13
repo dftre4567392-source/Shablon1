@@ -9,7 +9,7 @@ const SOURCE=fs.readFileSync(new URL("../api/handler.ts",import.meta.url),"utf8"
 export const ids={master:10001,a:20002,b:20003,c:20004};
 const BOT_TOKEN="123456:test-only-fake-token";
 const WEBHOOK_SECRET="test-webhook-secret";
-export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additionalMasters="",storagePath=null,services=null}={}){
+export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additionalMasters="",storagePath=null,services=null,accentColor=null}={}){
   let storage=null,version=0,conflictBudget=forcedConflicts;
   const messages=[],botSettings=[];
   class BlobPreconditionFailedError extends Error {}
@@ -47,6 +47,7 @@ export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additi
       ADDITIONAL_MASTER_TELEGRAM_IDS:additionalMasters,
       ...(storagePath?{BOOKCORE_STORAGE_PATH:storagePath}:{}),
       ...(services?{BOOKCORE_SERVICES_JSON:JSON.stringify(services)}:{}),
+      ...(accentColor?{TENANT_ACCENT_COLOR:accentColor}:{}),
       TENANT_TIMEZONE:timezone,TENANT_DISPLAY_NAME:"Тестовая студия",
       MASTER_DISPLAY_NAME:"Тестовый мастер",APP_URL:"https://bookcore-test.invalid"
     }},
