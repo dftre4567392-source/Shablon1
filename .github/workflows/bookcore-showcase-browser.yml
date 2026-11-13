@@ -8,6 +8,8 @@ on:
 jobs:
   browser:
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.57.0-noble
     timeout-minutes: 12
     permissions:
       contents: read
@@ -15,13 +17,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install test browser
-        run: |
-          npm install --no-save playwright@1.57.0
-          npx playwright install --with-deps chromium
+      - name: Install Playwright runtime
+        run: npm install --no-save playwright@1.57.0
       - name: Check live BOOKCORE showroom on desktop and mobile
         run: node bookcore-showcase/tests/browser-smoke.mjs
       - name: Save screenshots
