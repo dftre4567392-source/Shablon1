@@ -36,6 +36,7 @@ jobs:
           - bookcore-vercel/tests/ — 37 серверных/клиентских автотестов, Chromium E2E, временный тестовый сервер.
           - bookcore-vercel/QA_REPORT.md — матрица тест-кейсов и результаты проверки.
           - bookcore-vercel/customer-template — формы, конфигурации и шаблоны новых услуг.
+          - README.md — инструкции по изоляции заказчиков и проверкам.
 
           Адрес: https://bookcore-telegram.vercel.app
           GitHub: https://github.com/dftre4567392-source/Shablon1/tree/main/bookcore-vercel
