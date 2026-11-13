@@ -1,0 +1,46 @@
+name: BOOKCORE complete isolated regression suite
+on:
+  push:
+    paths:
+      - 'bookcore-vercel/index.html'
+      - 'bookcore-vercel/api/handler.ts'
+      - 'bookcore-vercel/tests/**'
+      - '.github/workflows/bookcore-full-test.yml'
+  workflow_dispatch:
+jobs:
+  automated-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check embedded browser and API syntax
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html=Path('bookcore-vercel/index.html').read_text(encoding='utf-8')
+          scripts=re.findall(r'<script[^>]*>(.*?)</script>',html,flags=re.S)
+          assert scripts
+          Path('/tmp/bookcore-browser.js').write_text(scripts[-1])
+          source=Path('bookcore-vercel/api/handler.ts').read_text()
+          source=re.sub(r'^import .*?;\s*$','',source,flags=re.M)
+          source=source.replace('export default {','globalThis.__handler = {')
+          Path('/tmp/bookcore-api.js').write_text(source)
+          PY
+          node --check /tmp/bookcore-browser.js
+          node --check /tmp/bookcore-api.js
+      - name: Run all isolated scenario tests
+        run: |
+          node --test --test-reporter=spec bookcore-vercel/tests/*.test.mjs
+      - name: Check repository contains no deployment secrets
+        run: |
+          set -euo pipefail
+          if git grep -I -n -E '(^|[^A-Za-z0-9])([0-9]{9,12}:[A-Za-z0-9_-]{32,})' -- bookcore-vercel; then
+            echo "Potential Telegram credential found in project files" >&2
+            exit 1
+          fi
+          echo "FULL_TEST_SUITE_PASS"
