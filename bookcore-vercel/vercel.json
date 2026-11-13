@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "framework": null,
+  "functions": {
+    "api/handler.ts": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/health",
+      "destination": "/api/handler?route=%2Fhealth"
+    }
+  ]
+}
