@@ -24,7 +24,10 @@ jobs:
           assert 'function homeBookingCard()' in js
           assert 'function publicView()' in js
           assert 'function masterView()' in js
-          assert 'Выберите процедуру' in js
+          assert 'Выберите услуги' in js
+          assert 'function calendarMarkup()' in js
+          assert 'function selectedServices()' in js
+          assert 'type="date" class="field" value=' not in js
           assert '♡ Забота в деталях' not in js
           Path("/tmp/bookcore-browser.js").write_text(js)
           PY
