@@ -301,3 +301,63 @@ test("27 malformed extra master IDs are never authorized",async()=>{
   assert.equal((await h.request("/api/me",{user:ids.master})).body.role,"master");
   assert.equal((await h.request("/api/me",{user:769983100})).body.role,"client");
 });
+
+test("28 per-customer storage path defaults to previous production data path",()=>{
+  const h=createHarness();
+  assert.equal(vm.runInContext("PATH",h.sandbox),"bookcore/v1/state.json");
+});
+test("29 custom customer deployment loads its own catalog, price and brand accent",async()=>{
+  const items=[
+    {title:"Маникюр без покрытия",description:"Маникюр",minutes:60,price:1300},
+    {title:"Укрепление ногтей",description:"Вместе с маникюром",minutes:45,price:900}
+  ];
+  const h=createHarness({
+    storagePath:"bookcore/customers/nails-001/state.json",
+    services:items,accentColor:"#734B67"
+  });
+  assert.equal(vm.runInContext("PATH",h.sandbox),"bookcore/customers/nails-001/state.json");
+  const pub=await h.request("/api/public");
+  assert.equal(pub.status,200);
+  assert.equal(pub.body.services.length,2);
+  assert.equal(pub.body.services[0].title,"Маникюр без покрытия");
+  assert.equal(pub.body.accentColor,"#734B67");
+  await named(h,ids.a);
+  const day=h.openDay(),times=await free(h,day,"1,2");
+  assert.ok(times.length>0);
+  const booked=await h.post("/api/book",{date:day,time:times[0],serviceIds:[1,2]},ids.a);
+  assert.equal(booked.status,200);
+  assert.equal(h.readStore().bookings[0].price,2200);
+  assert.equal((Date.parse(h.readStore().bookings[0].busy_until)-
+    Date.parse(h.readStore().bookings[0].starts_at))/60000,120);
+});
+test("30 invalid customer storage path is rejected before API startup",()=>{
+  for(const badPath of ["../master/state.json","bookcore/../state.json","/home/.env","bookcore//state.json","bookcore/data.txt"]){
+    assert.throws(()=>createHarness({storagePath:badPath}),/INVALID_BOOKCORE_STORAGE_PATH/);
+  }
+});
+test("31 malformed or unsafe customer service catalog is rejected",()=>{
+  const invalid=[
+    [], Array.from({length:31},(_,n)=>({title:"Service "+n,minutes:60,price:1000})),
+    [{title:"x",minutes:60,price:300}],
+    [{title:"Маникюр",minutes:3,price:500}],
+    [{title:"Маникюр",minutes:60,price:-50}],
+    [{title:"Маникюр",minutes:60,price:1000001}]
+  ];
+  for(const services of invalid){
+    const h=createHarness({services});
+    assert.rejects(h.request("/api/public"),/INVALID_BOOKCORE_SERVICES_JSON/);
+  }
+});
+test("32 invalid accent color reverts to BOOKCORE default",async()=>{
+  const h=createHarness({accentColor:"red; background:evil"});
+  const p=await h.request("/api/public");
+  assert.equal(p.status,200);
+  assert.equal(p.body.accentColor,"#513548");
+});
+test("33 original default service catalog stays unchanged for the existing live studio",async()=>{
+  const h=createHarness();
+  const r=await h.request("/api/public");
+  assert.equal(r.status,200);
+  assert.equal(r.body.services.length,5);
+  assert.equal(r.body.services[0].price,1700);
+});
