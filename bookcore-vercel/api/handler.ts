@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createHmac, createHash, timingSafeEqual, randomUUID } from "node:crypto";
+import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { get, head, put, BlobPreconditionFailedError } from "@vercel/blob";
 
 const PATH="bookcore/v1/state.json";
@@ -100,7 +100,7 @@ async function mutate(fn){
     }catch(e){
       const reason=String(e?.message||e);
       if(e instanceof BlobPreconditionFailedError || /already exists|precondition|conflict|412|409|blob_already/i.test(reason)){
-        console.warn("BOOKCORE_STORAGE_CONFLICT_RETRY",i+1,JSON.stringify({readHasEtag:!!etag,etagLength:etag?.length||0,errorType:e?.name||"Unknown",errorCode:e?.code||null,message:reason.slice(0,170)}));
+        console.warn("BOOKCORE_STORAGE_CONFLICT_RETRY",i+1);
         await new Promise(ok=>setTimeout(ok,20+i*80));
         continue;
       }
@@ -162,26 +162,6 @@ async function execute(req){
   const route=uri.searchParams.get("route")||"/health";
   const method=req.method;
 
-  // Temporary, hash-guarded storage migration check; removed after verification.
-  if(route==="/api/__one_time_storage_probe"&&method==="GET"){
-    const provided=uri.searchParams.get("key")||"";
-    const expected="33e4438b742bc2dcb7ded974c341f03f31eca8d31d719a66c99a10fbd1c9b827";
-    if(createHash("sha256").update(provided).digest("hex")!==expected)fail(404,"NOT_FOUND");
-    if(uri.searchParams.get("mode")==="meta"){
-      const current=await load();
-      const meta=await head(PATH);
-      return respond({getHasEtag:!!current.etag,headHasEtag:!!meta?.etag,etagEqual:current.etag===meta?.etag,
-        getEtagLength:current.etag?.length||0,headEtagLength:meta?.etag?.length||0,
-        getQuoted:current.etag?.startsWith('"')||false,headQuoted:meta?.etag?.startsWith('"')||false});
-    }
-    const proof=randomUUID();
-    await mutate(s=>{s.__storage_probe={proof};return true;});
-    const verified=await mutate(s=>{
-      if(s.__storage_probe?.proof!==proof)fail(503,"STORAGE_READ_AFTER_WRITE_INCONSISTENT");
-      delete s.__storage_probe;return true;
-    });
-    return respond({ok:verified,writeOne:true,readAfterWrite:true,writeTwo:true});
-  }
   if(route==="/health"||route==="/api/health"){
     let storage=false;
     try{await load();storage=true;}catch(e){console.error("BOOKCORE_STORAGE_STATUS",String(e));}
