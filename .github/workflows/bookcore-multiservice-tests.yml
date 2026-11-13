@@ -1,0 +1,98 @@
+name: BOOKCORE multi-service and calendar regression tests
+
+on:
+  push:
+    paths:
+      - 'bookcore-vercel/index.html'
+      - 'bookcore-vercel/api/handler.ts'
+      - '.github/workflows/bookcore-multiservice-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  booking-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract client JS and server JS
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html=Path("bookcore-vercel/index.html").read_text()
+          scripts=re.findall(r"<script[^>]*>(.*?)</script>",html,re.S)
+          assert scripts
+          Path("/tmp/bookcore-browser.js").write_text(scripts[-1])
+          api=Path("bookcore-vercel/api/handler.ts").read_text()
+          api=re.sub(r"^import .*?;\s*$","",api,flags=re.M)
+          api=api.split("export default {",1)[0]
+          Path("/tmp/bookcore-api.js").write_text(api)
+          PY
+          node --check /tmp/bookcore-browser.js
+          node --check /tmp/bookcore-api.js
+      - name: Test date and service combinations without altering live bookings
+        run: |
+          node <<'JS'
+          const fs=require("fs"),vm=require("vm"),assert=require("node:assert/strict");
+          const api=fs.readFileSync("/tmp/bookcore-api.js","utf8");
+          const backend={console,Intl,Date,process:{env:{TENANT_TIMEZONE:"Europe/Moscow"}},setTimeout};
+          vm.createContext(backend);vm.runInContext(api,backend);
+          const evalApi=(script)=>vm.runInContext(script,backend);
+          assert.equal(evalApi('validDate("2026-09-31")'),false);
+          assert.equal(evalApi('validDate("92920-09-31")'),false);
+          assert.equal(evalApi('validDate("2027-02-29")'),false);
+          assert.equal(evalApi('validDate("2028-02-29")'),true);
+          const today=evalApi("todayInStudio()");
+          assert.equal(evalApi("bookableDate(todayInStudio())"),true);
+          assert.equal(evalApi('bookableDate("9999-01-01")'),false);
+          const plusDays=n=>{
+            const d=new Date(today+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+n);
+            return d.toISOString().slice(0,10);
+          };
+          backend.day45=plusDays(45);backend.day46=plusDays(46);
+          assert.equal(evalApi("bookableDate(day45)"),true);
+          assert.equal(evalApi("bookableDate(day46)"),false);
+          backend.testState=evalApi("seed()");
+          const bundle=evalApi("resolveServices(testState,[1,4])");
+          assert.equal(bundle.price,3300);
+          assert.equal(bundle.minutes,195);
+          assert.equal(bundle.ids.length,2);
+          assert.match(bundle.name,/Ламинирование/);
+          assert.equal(evalApi("resolveServices(testState,[1,1])"),null);
+          assert.equal(evalApi("resolveServices(testState,[1,5000])"),null);
+          assert.equal(evalApi("resolveServices(testState,[])"),null);
+          backend.testDate=null;
+          for(let i=5;i<=14;i++){
+            backend.testDate=plusDays(i);
+            if(evalApi("daySchedule(testState,testDate).active"))break;
+          }
+          assert.ok(evalApi("daySchedule(testState,testDate).active"));
+          const slots=evalApi("slots(testState,testDate,[1,4])");
+          assert.ok(slots.length>0,"multi-service booking must expose some slots on an open day");
+          backend.testTime=slots[0];
+          backend.testState.bookings.push({
+            id:"mock-booking",status:"confirmed",
+            ...evalApi("timeRange({minutes:195},testDate,testTime)")
+          });
+          const after=evalApi("slots(testState,testDate,[1,4])");
+          assert.ok(!after.includes(backend.testTime),"overlapping slot must disappear");
+          assert.ok(evalApi("slots(testState,testDate,[1,2,3,4,5])").length===0,"bundle exceeding workday cannot have slots");
+          assert.equal(evalApi('slots(testState,"2026-09-31",[1,4]).length'),0);
+          console.log("SERVER_REGRESSION_PASS: dates, 2-service totals, conflicts, invalid dates, 45-day limit");
+          
+          const html=fs.readFileSync("/tmp/bookcore-browser.js","utf8").replace(/\ninit\(\);\s*$/,"");
+          const browser={window:{Telegram:null},document:{getElementById:()=>({innerHTML:""})},location:{origin:"https://bookcore-telegram.vercel.app"},console,Intl,Date,URL,Blob,alert:()=>{},fetch:async()=>({ok:true,json:async()=>({})})};
+          vm.createContext(browser);vm.runInContext(html,browser);
+          vm.runInContext('state.public={timezone:"Europe/Moscow",ready:true,masterName:"Мастер",studio:"Студия",services:[{id:1,active:true,title:"Услуга A",minutes:120,price:1700},{id:4,active:true,title:"Услуга B",minutes:75,price:1600}]}',browser);
+          vm.runInContext("chooseService(1);chooseService(4);",browser);
+          assert.equal(vm.runInContext("selectionTotal().price",browser),3300);
+          assert.equal(vm.runInContext("selectionTotal().minutes",browser),195);
+          assert.equal(vm.runInContext("selectionTotal().count",browser),2);
+          assert.ok(vm.runInContext("calendarMarkup()",browser).includes("cal-grid"));
+          assert.equal(vm.runInContext('validCalendarDate("92920-09-31")',browser),false);
+          assert.equal(vm.runInContext('validCalendarDate("2026-09-31")',browser),false);
+          assert.equal(vm.runInContext("validCalendarDate(studioMaxDate())",browser),true);
+          vm.runInContext("chooseService(1)",browser);
+          assert.equal(vm.runInContext("selectionTotal().count",browser),1);
+          console.log("CLIENT_REGRESSION_PASS: select/toggle services, total price, calendar, invalid dates");
+          JS
