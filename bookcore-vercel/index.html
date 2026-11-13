@@ -21,7 +21,7 @@ function homeBookingCard(){
   const master=esc(state.public.masterName||"Мастер");
   const studio=esc(state.public.studio||"Студия");
   return '<div class="section"><h2>Запись к мастеру</h2><span class="sub">'+master+'</span></div>'+
-    '<div class="card" style="padding:18px"><div class="row"><div class="circle" style="flex-shrink:0">▦</div><div style="flex:1;min-width:0"><div class="serviceName">'+studio+'</div><div class="sub">Выберите услугу, затем удобную дату и время</div></div></div>'+
+    '<div class="card" style="padding:18px"><div class="row" style="align-items:center;margin-bottom:18px"><div class="circle" style="flex-shrink:0">▦</div><div style="flex:1;min-width:0"><div class="serviceName">'+studio+'</div><div class="sub">Выберите услугу, затем удобную дату и время</div></div></div>'+
     '<button class="btn full" onclick="route(\'booking\')">Выбрать услугу и время →</button></div>'+
     '<div class="card" style="margin-top:13px"><h3 style="margin:0 0 12px">Как проходит запись</h3>'+
     '<div class="sub" style="margin-bottom:9px"><b style="color:#745168">01</b> &nbsp; Выберите услугу и посмотрите цену</div>'+
