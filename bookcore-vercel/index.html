@@ -32,7 +32,32 @@ const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
 function fail(msg){alert(msg);}
-async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json().catch(()=>null);if(x===null)throw new Error("Сервер временно недоступен. Попробуйте ещё раз.");if(!r.ok)throw new Error(x.error||"Сервер временно недоступен. Попробуйте ещё раз.");return x;}
+const API_ERROR_TEXT={
+  TIME_NOT_AVAILABLE:"Это время уже занято. Выберите другое.",
+  NAME_REQUIRED:"Сначала укажите имя в профиле.",
+  INVALID_DATE_TIME:"Проверьте выбранную дату и время.",
+  INVALID_DATE:"Такой даты не существует.",
+  DATE_OUT_OF_RANGE:"Выберите дату в пределах ближайших 45 дней.",
+  INVALID_SERVICES:"Выберите доступные услуги.",
+  EXISTING_BOOKINGS:"Есть подтверждённые записи. Сначала перенесите их или выберите другой график.",
+  INVALID_BLOCK:"Выберите корректный день в пределах года и правильно укажите часы.",
+  INVALID_SCHEDULE:"Проверьте начало и конец рабочего дня.",
+  INVALID_MANUAL_BOOKING:"Проверьте имя, дату, время и услугу.",
+  INVALID_SERVICE:"Проверьте название, длительность и цену услуги.",
+  TOO_LATE_TO_CANCEL:"Отмена доступна не позднее чем за 12 часов до процедуры. Свяжитесь с мастером.",
+  TOO_LATE_TO_RESCHEDULE:"Перенос доступен не позднее чем за 12 часов до процедуры. Свяжитесь с мастером.",
+  APPOINTMENT_NOT_STARTED:"Запись ещё не началась. Отметить её выполненной пока нельзя.",
+  NOT_ACTIVE:"Эта запись уже не активна.",
+  FORBIDDEN:"Недостаточно прав для этого действия.",
+  TELEGRAM_AUTH_REQUIRED:"Откройте приложение через Telegram-бота.",
+  STORAGE_BUSY_TRY_AGAIN:"Сервис перегружен. Повторите попытку чуть позже."
+};
+function humanApiError(error){
+  if(API_ERROR_TEXT[error])return API_ERROR_TEXT[error];
+  if(typeof error==="string"&&!/^[A-Z][A-Z0-9_]*$/.test(error))return error;
+  return "Не удалось выполнить действие. Попробуйте ещё раз.";
+}
+async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json().catch(()=>null);if(x===null)throw new Error("Сервер временно недоступен. Попробуйте ещё раз.");if(!r.ok)throw new Error(humanApiError(x.error));return x;}
 const isMaster=()=>state.me&&state.me.role==="master";
 async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}if(isMaster())state.loading=true;render();if(isMaster())void loadMaster();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
 function route(p){
@@ -259,7 +284,7 @@ async function book(){
   }catch(error){fail("Не удалось записаться: "+error.message);if(state.date)void loadSlots();}
   finally{state.bookingPending=false;render();}
 }
-async function loadBookings(){try{state.bookings=(await api("/api/bookings")).bookings||[];render()}catch{}}
+async function loadBookings(){try{state.bookings=(await api("/api/bookings")).bookings||[];render()}catch(error){fail("Не удалось загрузить записи: "+error.message)}}
 async function cancelBooking(id){if(!confirm("Отменить эту запись?"))return;try{await api("/api/cancel",{method:"POST",body:JSON.stringify({id})});loadBookings();loadMaster()}catch(e){fail(e.message)}}
 
 async function createManual(){
