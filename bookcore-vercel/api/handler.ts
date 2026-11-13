@@ -2,7 +2,9 @@
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 import { get, head, put, BlobPreconditionFailedError } from "@vercel/blob";
 
-const PATH="bookcore/v1/state.json";
+// Isolate customer deployments; the default continues reading the existing live store.
+const PATH=process.env.BOOKCORE_STORAGE_PATH||"bookcore/v1/state.json";
+if(!/^bookcore\/[a-z0-9][a-z0-9/_-]{0,120}\.json$/i.test(PATH)||PATH.includes("..")||PATH.includes("//"))throw new Error("INVALID_BOOKCORE_STORAGE_PATH");
 const TOKEN=process.env.TELEGRAM_BOT_TOKEN||"";
 const MASTER=String(process.env.MASTER_TELEGRAM_ID||"");
 const MASTER_IDS=new Set([MASTER,...String(process.env.ADDITIONAL_MASTER_TELEGRAM_IDS||"").split(/[,;\s]+/)].filter(id=>/^\d{5,20}$/.test(id)));
@@ -92,15 +94,31 @@ function utc(date,time){
   }
   return new Date(guess);
 }
-function seed(){return {
- users:{},
- services:[
+const DEFAULT_SERVICES=[
   {id:1,title:"Классическое наращивание",description:"Естественный и выразительный взгляд",minutes:120,price:1700,active:true},
   {id:2,title:"Наращивание 2D",description:"Воздушный двойной объём",minutes:150,price:2000,active:true},
   {id:3,title:"Наращивание 3D",description:"Эффектный объём",minutes:180,price:2300,active:true},
   {id:4,title:"Ламинирование ресниц",description:"Натуральный изгиб",minutes:75,price:1600,active:true},
   {id:5,title:"Снятие ресниц",description:"Бережное снятие",minutes:30,price:400,active:true}
- ],
+ ];
+function bootstrapServices(){
+  const defaults=DEFAULT_SERVICES;
+  const raw=process.env.BOOKCORE_SERVICES_JSON;
+  if(!raw)return defaults.map(x=>({...x}));
+  let items;
+  try{items=JSON.parse(raw)}catch{throw new Error("INVALID_BOOKCORE_SERVICES_JSON")}
+  if(!Array.isArray(items)||items.length<1||items.length>30)throw new Error("INVALID_BOOKCORE_SERVICES_JSON");
+  return items.map((item,index)=>{
+    const title=clean(item?.title),description=clean(item?.description||"");
+    const minutesCount=Number(item?.minutes),price=Number(item?.price);
+    if(title.length<3||!Number.isInteger(minutesCount)||minutesCount<15||minutesCount>600||
+      !Number.isInteger(price)||price<0||price>1000000)throw new Error("INVALID_BOOKCORE_SERVICES_JSON");
+    return {id:index+1,title,description,minutes:minutesCount,price,active:true};
+  });
+}
+function seed(){return {
+ users:{},
+ services:bootstrapServices(),
  schedule:[0,1,2,3,4,5,6].map(weekday=>({weekday,start_time:"10:00",end_time:"19:00",active:weekday>=1&&weekday<=5})),
  blocks:[],bookings:[],seq:1
 };}
