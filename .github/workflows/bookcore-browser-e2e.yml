@@ -10,7 +10,7 @@ on:
 
 jobs:
   mobile-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 17
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +34,11 @@ jobs:
       - name: Run real Chromium client and master scenarios
         run: |
           node --test --test-reporter=spec bookcore-vercel/tests/browser.e2e.mjs
+      - name: Save diagnostic logs
+        if: always()
+        run: |
+          mkdir -p bookcore-vercel/test-artifacts
+          cp /tmp/bookcore-stage.log bookcore-vercel/test-artifacts/staging.log 2>/dev/null || true
       - name: Upload screenshots and diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -41,6 +46,5 @@ jobs:
           name: BOOKCORE-mobile-browser-report
           path: |
             bookcore-vercel/test-artifacts/
-            /tmp/bookcore-stage.log
           if-no-files-found: warn
           retention-days: 7
