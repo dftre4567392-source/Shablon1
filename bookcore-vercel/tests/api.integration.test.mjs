@@ -93,7 +93,9 @@ test("07 duplicate/invalid service ids, unsupported bundles and malformed bookin
     assert.equal(r.status,400,JSON.stringify({serviceIds,r}));
   }
   const huge=await h.post("/api/book",{date:day,time:slots[0],serviceIds:[1,2,3,4,5]},ids.a);
-  assert.equal(huge.status,400);
+  // All five known procedures total 555 minutes; this is valid syntax but cannot fit a workday.
+  assert.equal(huge.status,409);
+  assert.equal(huge.body.error,"TIME_NOT_AVAILABLE");
   assert.equal((await h.post("/api/book",{date:day,time:"99:00",serviceIds:[1]},ids.a)).status,400);
   assert.equal((await h.post("/api/book",{date:"92920-02-29",time:"10:00",serviceIds:[1]},ids.a)).status,400);
 });
