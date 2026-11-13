@@ -1,126 +1,92 @@
-# BOOKCORE — реестр тест-кейсов и отчёт об испытаниях
+# BOOKCORE — тестирование и критерии выпуска · 14.11.2026
 
-**Версия:** проверка после исправлений 13 ноября 2026  
-**Предмет:** Telegram Mini App для одного мастера на Vercel  
-**Основной сайт:** https://bookcore-telegram.vercel.app/  
-**Тестовые данные:** только вымышленные клиенты и локальный in-memory Blob с эмуляцией ETag  
-**Секреты:** настоящие токены Telegram и доступ к клиентским данным в CI не используются.
+**Результат последнего изолированного прогона:** 33 API-теста + 12 UI-тестов = **45/45 PASS**. Отдельный Chromium mobile E2E прошёл после исправления асинхронной перерисовки формы мастера.
 
-## 1. Тестовый контур
+Проверки: [45 тестов](https://github.com/dftre4567392-source/Shablon1/actions/runs/43473137888) · [Chromium E2E](https://github.com/dftre4567392-source/Shablon1/actions/runs/43473131754).
 
-Сценарии тестируются в трёх уровнях:
+## API / бизнес-логика (33)
 
-1. **Unit / integration (Node.js 24)**: боевой код API загружается в отдельный VM-контекст; частное Blob-хранилище имитируется с проверкой атомарных изменений ETag; Telegram Bot API имитируется без сетевых запросов. При каждом запуске — отдельная чистая база в памяти.
-2. **Реальный браузер (Chromium, 390 × 844)**: временный HTTP-сервер запускает исходный HTML BOOKCORE и реальный обработчик API, но с тестовыми Blob и Telegram. Проверяются интерфейсы клиента, мастера и отображение календаря, делаются скриншоты.
-3. **Live smoke (Vercel HTTPS)**: GET главной страницы, /health, каталог услуг, доступность API и запрет неавторизованной записи. В живом тесте нельзя создавать фиктивные записи реальным клиентам.
+| ID | Сценарий |
+|---|---|
+| API-01 | GET /health reports isolated storage and Telegram enabled |
+| API-02 | unauthenticated and forged clients cannot access bookings/master |
+| API-03 | profile name rules and client role |
+| API-04 | invalid dates including 31 September, year 9999, past and >45 days |
+| API-05 | supported multi-service pricing and durations |
+| API-06 | single-service booking backward compatibility |
+| API-07 | duplicate/invalid service ids, unsupported bundles and malformed booking time |
+| API-08 | client cannot book before entering a name |
+| API-09 | overlapping booking is prevented for same client and other client |
+| API-10 | concurrent requests with stale Blob ETags cannot double-book |
+| API-11 | transient ETag conflict is retried without duplicate writes |
+| API-12 | appointments are private to their owner; master sees all |
+| API-13 | cancellation requires owner/master and reopens availability |
+| API-14 | reschedule preserves multi-service total and protects ownership |
+| API-15 | reschedule rejects invalid days and long-past year |
+| API-16 | master blocks full day, cannot block occupied day, then unblocks |
+| API-17 | partial day blocks affect time but not other intervals |
+| API-18 | master weekly schedule toggles access, client cannot edit |
+| API-19 | master edits services and validation rejects bad prices/duration |
+| API-20 | master manual booking and conflict with client booking |
+| API-21 | master sets completed and no-show; client forbidden |
+| API-22 | bot /start, /id and webhook secret guard |
+| API-23 | private avatar requires Telegram signature |
+| API-24 | late client cancellation/reschedule is blocked |
+| API-25 | studio timezone handles Barnaul, Moscow and Amsterdam correctly |
+| API-26 | original and additional masters both have access; both receive booking notice |
+| API-27 | malformed extra master IDs are never authorized |
+| API-28 | per-customer storage path defaults to previous production data path |
+| API-29 | custom customer deployment loads its own catalog, price and brand accent |
+| API-30 | invalid customer storage path is rejected before API startup |
+| API-31 | malformed or unsafe customer service catalog is rejected |
+| API-32 | invalid accent color reverts to BOOKCORE default |
+| API-33 | original default service catalog stays unchanged for the existing live studio |
 
-### Запуск автотестов
+## Клиентская часть / UI (12)
 
-~~~bash
-node --test --test-reporter=spec bookcore-vercel/tests/*.test.mjs
-~~~
+| ID | Сценарий |
+|---|---|
+| UI-01 | legacy native client date input no longer present |
+| UI-02 | month heading hides year; actual day values still keep it |
+| UI-03 | invalid day/year/leap-year rejected in browser |
+| UI-04 | year boundary December -> January without visible year |
+| UI-05 | multi-service selection and deselection preserves totals |
+| UI-06 | booking summary shows a localized day without year |
+| UI-07 | invalid date not applied by selectDate |
+| UI-08 | reschedule uses new calendar without native year input |
+| UI-09 | calendar layout has seven columns, disabled out-of-range days |
+| UI-10 | client and master navigation still render without errors |
+| UI-11 | selecting a day triggers combined service request |
+| UI-12 | booking disabled when bot is not configured |
 
-**Проверка в настоящем браузере:** см. .github/workflows/bookcore-browser-e2e.yml; программа запускает временный локальный стенд и устанавливает Chromium на GitHub Actions Ubuntu 24.04.
+## Мобильный Chromium E2E
 
-### Ссылки на исходники и автоматизацию
+Последовательно проверяет: вход клиента, ввод имени, выбор двух услуг, свободную дату, запись, просмотр и перенос, защиту гостя, вход мастера, ручную запись и отсутствие горизонтального переполнения на ширине 390px. В тестах используется приватное in-memory-хранилище, реальные клиентские данные и боевые Telegram-токены не запрашиваются.
 
-- API тесты: [tests/api.integration.test.mjs](tests/api.integration.test.mjs)
-- UI тесты: [tests/ui.unit.test.mjs](tests/ui.unit.test.mjs)
-- Тестовая изолированная среда: [tests/harness.mjs](tests/harness.mjs), [tests/preview-server.mjs](tests/preview-server.mjs)
-- Тесты мобильного браузера: [tests/browser.e2e.mjs](tests/browser.e2e.mjs)
-- CI всех тестов: [bookcore-full-test.yml](../.github/workflows/bookcore-full-test.yml)
-- CI браузера: [bookcore-browser-e2e.yml](../.github/workflows/bookcore-browser-e2e.yml)
-- Live smoke: [bookcore-live-calendar.yml](../.github/workflows/bookcore-live-calendar.yml)
+## Исправления этого выпуска
 
-## 2. Серверные тест-кейсы (API)
+- Асинхронное обновление календаря больше не стирает данные, вводимые мастером.
+- Конфигурация новых установок: BOOKCORE_STORAGE_PATH, BOOKCORE_SERVICES_JSON и TENANT_ACCENT_COLOR.
+- Неверные каталог, цена, минуты и путь данных отклоняются.
+- Старый путь хранилища действующей студии сохранён.
+- Команды `npm run check` и `npm test` реально исполняются.
 
-| ID | Сценарий | Проверяемый результат |
-|---|---|---|
-| API-01 | /health и /api/public | Хранилище и каталог доступны; настройки тестового бота создаются |
-| API-02 | Доступ без подписи Telegram, поддельный хеш, старый initData | HTTP 401 |
-| API-03 | Первое имя клиента, запрещённое имя и роль клиента/мастера | Имя сохраняется только после валидации |
-| API-04 | 31.09, 92920 год, високосные даты, прошлое и +46 суток | HTTP 400 для некорректных дат |
-| API-05 | Выбор двух процедур одновременно | Цена и минуты суммируются, единый интервал с буфером |
-| API-06 | Старая форма записи одной услугой | Обратная совместимость serviceId |
-| API-07 | Пустой выбор, дубликаты ID, несуществующие услуги и длительность больше рабочего окна | Запрет записи; подходящие HTTP 400/409 |
-| API-08 | Клиент без имени | HTTP 409 NAME_REQUIRED |
-| API-09 | Повторная запись на тот же интервал одним/разными клиентами | HTTP 409, слот исчезает |
-| API-10 | Два параллельных POST /api/book | Ровно одна запись, без перезаписи другого клиента |
-| API-11 | Искусственная ошибка сравнения ETag в Blob | Повторная попытка и единственное сохранение |
-| API-12 | Данные клиента А, клиента Б и мастера | Клиент видит только свои записи, мастер — все |
-| API-13 | Отмена своей/чужой/уже отменённой записи | HTTP 200/403/409; слот освобождается |
-| API-14 | Перенос двух услуг на другую дату | Сохраняется цена и длительность; чужая запись защищена |
-| API-15 | Перенос на 31.09, некорректный год и дату вне периода | Отказ без изменения записи |
-| API-16 | Блокировка занятого дня, затем свободного дня | Занятый день не закрывается, после отмены — закрывается |
-| API-17 | Частичная блокировка 10:00–11:00 | Недоступен указанный интервал, остаются другие слоты |
-| API-18 | Изменение рабочего дня и попытка изменения от клиента | Только мастер; график влияет на доступность |
-| API-19 | Создание/изменение услуги; ошибочная цена и длительность | Валидация и обновление каталога |
-| API-20 | Ручная запись мастером, затем попытка клиента занять то же время | Запись мастера сохраняется, конкурентная запрещена |
-| API-21 | Завершение и изменение статуса, запрет действий клиента | Только мастер меняет статус |
-| API-22 | /start, /id, секрет webhook и кнопка Mini App | Подписанный webhook; сообщения в мок Telegram |
-| API-23 | Получение фото Telegram без подписи и без доступного фото | HTTP 401 / 204 |
-| API-24 | Отмена и перенос менее чем за 12 часов, действие мастера | Клиент ограничен, мастер может отменить |
-| API-25 | Часовой пояс Москва, Барнаул, Амстердам | Локальные 10:00 переводятся в соответствующий UTC |
+## Запуск тестов
 
-## 3. Тест-кейсы интерфейса
+```bash
+cd bookcore-vercel
+npm run check
+npm test
+```
 
-| ID | Сценарий | Ожидаемое поведение |
-|---|---|---|
-| UI-01 | Поле ввода даты в клиентской записи и переносе | Нативное поле свободного ввода даты заменено календарём |
-| UI-02 | Заголовок месяца и дата записи | Год не виден, внутри сохраняется полный ISO date |
-| UI-03 | 31 сентября, несуществующий февраль, произвольный год | Даты отклоняются |
-| UI-04 | Переключение декабря на январь | Месяцы меняются корректно, видимый год отсутствует |
-| UI-05 | Выбрать две услуги, затем снять одну | Меняются сумма, длительность и отметки |
-| UI-06 | Итог записи с днём и месяцем | Локализованный видимый день без года |
-| UI-07 | Прямой вызов selectDate с недопустимой датой | Состояние даты не меняется |
-| UI-08 | Перенос записи | В модальном окне используется календарь без ввода года |
-| UI-09 | Сетка календаря и недоступные даты | 7 колонок, корректные disabled и aria-атрибуты |
-| UI-10 | Вход клиента и мастера | У мастера первым открывается «Обзор», у клиента — главная |
-| UI-11 | Выбор даты для двух услуг | Запрос GET /api/slots с обоими ID |
-| UI-12 | Нет настройки Telegram/мастера | Кнопка подтверждения недоступна, показано предупреждение |
+## За пределами подтверждённого результата
 
-## 4. Реальный мобильный браузер (Chromium)
+- Настоящая доставка Telegram-сообщений не тестировалась по боевым аккаунтам в CI.
+- Нагрузочные испытания и восстановление из резервной копии ещё не проводились.
+- Текущий private Vercel Blob JSON не является транзакционной многоклиентской PostgreSQL.
+- Правовые условия персональных данных необходимо проверить до коммерческого запуска.
+- MAX и автоматические напоминания не реализованы.
 
-Сценарий E2E выполняется на ширине 390 px в отдельном тестовом HTTP-сервере. Последовательно проверяются:
+## Приёмка каждого нового заказчика
 
-- вход Telegram-клиента через тестовую подпись;
-- ввод имени через модальное окно;
-- выбор двух процедур и общий итог;
-- календарь, выбор даты и свободного часа;
-- сохранение записи через настоящий код API;
-- просмотр своих записей и перенос через календарь без года;
-- гость без Telegram-подписи не может подтвердить запись;
-- вход тестового мастера сразу в кабинет;
-- открытие календаря мастера, добавление ручной записи;
-- отсутствие горизонтальной прокрутки;
-- отсутствие ошибок JavaScript в браузере.
-
-Скриншоты и staging-логи сохраняются артефактом GitHub Actions **BOOKCORE-mobile-browser-report**, без персональных данных.
-
-## 5. Выявленные и исправленные проблемы
-
-- Дата «31 сентября» и произвольный год: сервер и браузер теперь валидируют реальные календарные даты.
-- Месяц показывал год, хотя нужен был выбор дня и месяца: год убран **только из видимого клиентского интерфейса**, внутренние даты полноценные.
-- Нельзя было объединить процедуры: реализован выбор нескольких услуг и целостное бронирование времени.
-- При входе мастер мог оказаться не на панели обзора: исправлена маршрутизация.
-- Кабинет мастера не показывал имя клиента непосредственно в карточке записи: добавлено отображение.
-- Была жёсткая поправка UTC+3: время теперь вычисляется с учётом IANA часового пояса студии.
-
-## 6. Что НЕЛЬЗЯ объявлять полностью проверенным
-
-- **Реальный Telegram мастер:** в production-проверке отсутствовал MASTER_TELEGRAM_ID; тестовая роль мастера эмулирована. Полноценный приёмочный тест с конкретным владельцем бота ещё нужен.
-- **Реальная доставка уведомлений:** в CI применяется фальшивый Telegram API, фактическую доставку клиенту нужно проверить отдельно.
-- **Реальные нагрузки и резервное восстановление:** многопользовательская нагрузка и восстановление хранилища из резервной копии не проверены.
-- **Масштабирование на разных мастеров:** текущая компактная Vercel-версия использует один JSON в Blob и не является многоклиентским SaaS.
-- **Проверка персональных данных и правовая готовность:** отдельная задача до платных клиентов.
-- **Автоматические напоминания и MAX:** отсутствуют в текущем MVP; тестировать как готовые функции нельзя.
-
-## 7. Как завершить реальную приёмку
-
-1. Назначить реальный MASTER_TELEGRAM_ID в защищённых переменных Vercel; перевыпустить ранее опубликованный токен бота.
-2. Пройти сценарий записи через Telegram клиента, подтвердить уведомление клиента и мастера.
-3. Проверить отображение клиента в кабинете мастера, блокировку даты, перенос и отмену.
-4. Проверить корректный часовой пояс конкретной студии.
-5. Протестировать восстановление данных, резервные копии и отказоустойчивость до коммерческого обслуживания.
-
-**Статус:** автоматизированные сценарии выполняются в GitHub Actions и не используют живую клиентскую базу. Программные автотесты — обязательный шлюз перед следующими изменениями интерфейса.
+Свой бот, отдельный проект, уникальный BOOKCORE_STORAGE_PATH, защищённые переменные окружения, тестовая запись/отмена/перенос, проверка мастера, уведомлений, часового пояса и договора.
