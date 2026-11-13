@@ -274,3 +274,30 @@ test("25 studio timezone handles Barnaul, Moscow and Amsterdam correctly",()=>{
     assert.equal(instant,expected,timezone);
   }
 });
+
+test("26 original and additional masters both have access; both receive booking notice",async()=>{
+  const second=769983100;
+  const h=createHarness({additionalMasters:String(second)});
+  const original=await h.request("/api/me",{user:ids.master});
+  const extra=await h.request("/api/me",{user:second});
+  const client=await h.request("/api/me",{user:ids.a});
+  assert.equal(original.status,200);
+  assert.equal(extra.status,200);
+  assert.equal(original.body.role,"master");
+  assert.equal(extra.body.role,"master");
+  assert.equal(client.body.role,"client");
+  assert.equal((await h.request("/api/master",{user:second})).status,200);
+  assert.equal((await h.request("/api/master",{user:ids.a})).status,403);
+  await named(h,ids.a);
+  const date=h.openDay();
+  const time=(await free(h,date))[0];
+  const booked=await bookTwo(h,ids.a,date,time);
+  assert.equal(booked.status,200);
+  assert.ok(h.messages.some(m=>String(m.chat_id)===String(ids.master)&&m.text.startsWith("Новая запись:")));
+  assert.ok(h.messages.some(m=>String(m.chat_id)===String(second)&&m.text.startsWith("Новая запись:")));
+});
+test("27 malformed extra master IDs are never authorized",async()=>{
+  const h=createHarness({additionalMasters:"not-id,1234,769983100xyz"});
+  assert.equal((await h.request("/api/me",{user:ids.master})).body.role,"master");
+  assert.equal((await h.request("/api/me",{user:769983100})).body.role,"client");
+});
