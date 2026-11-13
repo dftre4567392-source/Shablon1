@@ -1,0 +1,33 @@
+name: BOOKCORE HTTP smoke test
+on:
+  push:
+    paths:
+      - 'bookcore/**'
+      - '.github/workflows/bookcore-smoke.yml'
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check HTTPS and PostgreSQL
+        run: |
+          set -euo pipefail
+          url="https://bookcore-miniapp.onrender.com"
+          for i in $(seq 1 20); do
+            if curl --silent --show-error --fail --max-time 20 "$url/health" -o /tmp/health.json; then break; fi
+            sleep 10
+          done
+          cat /tmp/health.json
+          jq -e '.ok == true' /tmp/health.json
+          jq -e '.database == true' /tmp/health.json
+          curl --fail --silent --show-error --max-time 20 "$url/api/public" -o /tmp/public.json
+          jq -e '.services | length >= 5' /tmp/public.json
+          curl --fail --silent --show-error --max-time 20 "$url/" -o /tmp/index.html
+          grep -q "BOOKCORE" /tmp/index.html
+      - name: Reject unauthenticated booking
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o /tmp/auth.json -w '%{http_code}' -X POST             -H 'content-type: application/json'             -d '{"date":"2026-12-01","time":"12:00","serviceId":1}'             https://bookcore-miniapp.onrender.com/api/book)
+          test "$status" = "401"
+          jq -e '.error == "TELEGRAM_AUTH_REQUIRED"' /tmp/auth.json
