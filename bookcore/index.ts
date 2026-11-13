@@ -155,7 +155,7 @@ async function handler(req) {
       return j({ok:true,name});
     }
     if(path==="/api/bookings" && method==="GET"){
-      const rows=identity.master ? await q("SELECT id,telegram_id,name,service_name,price,starts_at,status FROM bc_bookings WHERE tenant=$1 ORDER BY starts_at DESC LIMIT 200",[TENANT]) : await q("SELECT id,name,service_name,price,starts_at,status FROM bc_bookings WHERE tenant=$1 AND telegram_id=$2 ORDER BY starts_at DESC LIMIT 60",[TENANT,identity.id]);
+      const rows=identity.master ? await q("SELECT id,telegram_id,name,service_id,service_name,price,starts_at,status FROM bc_bookings WHERE tenant=$1 ORDER BY starts_at DESC LIMIT 200",[TENANT]) : await q("SELECT id,name,service_id,service_name,price,starts_at,status FROM bc_bookings WHERE tenant=$1 AND telegram_id=$2 ORDER BY starts_at DESC LIMIT 60",[TENANT,identity.id]);
       return j({bookings:rows});
     }
     if(path==="/api/book" && method==="POST"){
@@ -188,13 +188,44 @@ async function handler(req) {
     if(path==="/api/master" && method==="GET"){
       if(!identity.master)return err("FORBIDDEN",403);
       const [bs,blocks,sch,sv,users]=await Promise.all([
-        q("SELECT id,telegram_id,name,service_name,price,starts_at,status FROM bc_bookings WHERE tenant=$1 ORDER BY starts_at DESC LIMIT 250",[TENANT]),
+        q("SELECT id,telegram_id,name,service_id,service_name,price,starts_at,status FROM bc_bookings WHERE tenant=$1 ORDER BY starts_at DESC LIMIT 250",[TENANT]),
         q("SELECT id,day::text,start_time,end_time,reason FROM bc_blocks WHERE tenant=$1 ORDER BY day DESC LIMIT 120",[TENANT]),
         q("SELECT weekday,start_time,end_time,active FROM bc_schedule WHERE tenant=$1 ORDER BY weekday",[TENANT]),
         services(),
         q("SELECT telegram_id,client_name,created_at FROM bc_users ORDER BY created_at DESC LIMIT 250")
       ]);
       return j({bookings:bs,blocks,schedule:sch,services:sv,clients:users});
+    }
+    if(path==="/api/manual-book" && method==="POST"){
+      if(!identity.master)return err("FORBIDDEN",403);
+      const b=await parse(req),date=String(b.date||""),time=String(b.time||""),name=escapeStr(b.name).replace(/\s+/g," "),serviceId=int(b.serviceId);
+      if(name.length<2||name.length>50||!isDate(date)||!isTime(time))return err("INVALID_MANUAL_BOOKING");
+      const slots=await getSlots(date,serviceId);
+      if(!slots.includes(time))return err("TIME_NOT_AVAILABLE",409);
+      const [s]=await q("SELECT * FROM bc_services WHERE tenant=$1 AND id=$2 AND active=true",[TENANT,serviceId]);
+      if(!s)return err("SERVICE_NOT_FOUND",404);
+      const start=toUTC(date,time),end=new Date(start.getTime()+(s.minutes+15)*60000),id=randomUUID();
+      try {await q("INSERT INTO bc_bookings (id,tenant,telegram_id,name,service_id,service_name,price,starts_at,busy_until) VALUES ($1,$2,NULL,$3,$4,$5,$6,$7,$8)",[id,TENANT,name,s.id,s.title,s.price,start.toISOString(),end.toISOString()]);}
+      catch(ex){if(String(ex).includes("bc_booking_no_overlap")||String(ex).includes("23P01"))return err("TIME_NOT_AVAILABLE",409);throw ex;}
+      return j({ok:true,id});
+    }
+    if(path==="/api/reschedule" && method==="POST"){
+      const b=await parse(req),id=String(b.id||""),date=String(b.date||""),time=String(b.time||"");
+      if(!isDate(date)||!isTime(time))return err("INVALID_DATE_TIME");
+      const [bk]=await q("SELECT * FROM bc_bookings WHERE id=$1 AND tenant=$2",[id,TENANT]);
+      if(!bk)return err("NOT_FOUND",404);
+      if(bk.status!=="confirmed")return err("NOT_ACTIVE",409);
+      if(!identity.master && bk.telegram_id!==identity.id)return err("FORBIDDEN",403);
+      if(!identity.master && new Date(bk.starts_at).getTime()-Date.now()<12*3600000)return err("TOO_LATE_TO_RESCHEDULE",409);
+      const slots=await getSlots(date,bk.service_id);
+      if(!slots.includes(time))return err("TIME_NOT_AVAILABLE",409);
+      const [s]=await q("SELECT * FROM bc_services WHERE tenant=$1 AND id=$2",[TENANT,bk.service_id]);
+      const start=toUTC(date,time),end=new Date(start.getTime()+(s.minutes+15)*60000);
+      try {await q("UPDATE bc_bookings SET starts_at=$1,busy_until=$2 WHERE id=$3 AND status='confirmed'",[start.toISOString(),end.toISOString(),id]);}
+      catch(ex){if(String(ex).includes("bc_booking_no_overlap")||String(ex).includes("23P01"))return err("TIME_NOT_AVAILABLE",409);throw ex;}
+      if(bk.telegram_id)await sendTelegram(bk.telegram_id,"Ваша запись перенесена на "+localDate(start.toISOString()));
+      if(MASTER && !identity.master)await sendTelegram(MASTER,"Клиент перенёс запись: "+bk.name+" — "+localDate(start.toISOString()));
+      return j({ok:true,id});
     }
     if(path==="/api/block" && method==="POST"){
       if(!identity.master)return err("FORBIDDEN",403);
@@ -257,11 +288,16 @@ function publicView(){if(state.page==="home")return '<div class="hero"><div clas
 if(state.page==="booking")return '<div class="section"><h2>Выберите процедуру</h2></div><div class="sub">Стоимость указана для ознакомления, оплата вне приложения.</div>'+serviceCards()+'<div class="section"><h2>Дата и время</h2></div><div class="card"><label class="sub" for="date">Выберите свободную дату</label><input id="date" type="date" class="field" value="'+esc(state.date)+'" onchange="selectDate(this.value)" min="'+new Date().toISOString().slice(0,10)+'"/><div class="sub">Свободное время</div><div class="flex" id="slotList">'+(state.slots.length?state.slots.map(x=>'<button class="chip '+(state.time===x?"active":"")+'" onclick="selectTime(\''+x+'\')">'+x+'</button>').join(""):'<p class="cap">Сначала выберите услугу и дату</p>')+'</div></div><div class="card" style="margin-top:15px"><div class="row"><b>К записи</b><b>'+rub((state.public.services.find(x=>x.id===state.serviceId)||{}).price)+'</b></div><button class="btn full" style="margin-top:14px" '+(!state.time||!initial||!state.public.ready?"disabled":"")+' onclick="book()">Подтвердить запись</button>'+(!initial?'<div class="hint" style="margin-top:10px">Для записи откройте приложение через Telegram-бота.</div>':!state.public.ready?'<div class="hint" style="margin-top:10px">Онлайн-запись включится после подключения бота и мастера.</div>':'')+'</div>';
 if(state.page==="visits")return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':state.bookings.length?state.bookings.map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>');
 return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle">♙</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div><div class="card" style="margin-top:12px"><h3>Информация</h3><p class="sub">Для записи используется идентификатор Telegram и имя, которое вы указали самостоятельно. Никаких платежей в приложении нет.</p></div>';}
-function bookingCard(b){const date=new Date(b.starts_at).toLocaleString("ru-RU",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Moscow"});return '<div class="card" style="margin-bottom:10px"><div class="row"><b>'+esc(b.service_name)+'</b><span class="pill">'+esc(b.status)+'</span></div><div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b>'+(b.status==="confirmed"?'<button class="btn line" onclick="cancelBooking(\''+b.id+'\')">Отменить</button>':'')+'</div></div>';}
+function bookingCard(b){
+  const date=new Date(b.starts_at).toLocaleString("ru-RU",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Moscow"});
+  const quote=String.fromCharCode(39);
+  const actions=b.status==="confirmed"?'<div class="flex"><button class="btn line" onclick="rescheduleForm('+quote+b.id+quote+','+Number(b.service_id)+')">Перенести</button><button class="btn line" onclick="cancelBooking('+quote+b.id+quote+')">Отменить</button></div>':"";
+  return '<div class="card" style="margin-bottom:10px"><div class="row"><b>'+esc(b.service_name)+'</b><span class="pill">'+esc(b.status)+'</span></div><div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b>'+actions+'</div></div>';
+}
 function masterView(){if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid"><div class="card"><div class="sub">Активных записей</div><div class="value">'+recent.length+'</div></div><div class="card"><div class="sub">Всего клиентов</div><div class="value">'+(state.master&&state.master.clients||[]).length+'</div></div></div><div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
-if(state.page==="calendar")return '<div class="section"><h2>Календарь мастера</h2></div><div class="card"><h3>Закрыть день или часы</h3><input id="blockDay" type="date" class="field"/><div class="grid"><input id="from" type="time" class="field" placeholder="От"/><input id="to" type="time" class="field" placeholder="До"/></div><input id="blockReason" class="field" placeholder="Причина (необязательно)"/><p class="cap">Оставьте время пустым, чтобы закрыть весь день.</p><button class="btn full" onclick="blockDay()">Заблокировать</button></div><div class="section"><h2>Блокировки</h2></div>'+(state.master&&state.master.blocks||[]).map(b=>'<div class="item row"><div><b>'+esc(b.day.slice(0,10))+'</b><div class="sub">'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</div></div><button class="btn line" onclick="unblock('+b.id+')">Открыть</button></div>').join("")+'<div class="section"><h2>Записи</h2></div>'+(state.master&&state.master.bookings||[]).map(b=>bookingCard(b)+'<div class="flex" style="margin-bottom:15px"><button class="chip" onclick="setStatus(\''+b.id+'\',\'completed\')">Выполнено</button><button class="chip" onclick="setStatus(\''+b.id+'\',\'no_show\')">Неявка</button></div>').join("");
+if(state.page==="calendar")return '<div class="section"><h2>Календарь мастера</h2></div><div class="card"><h3>Добавить запись вручную</h3><input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/><select id="manualService" class="field">'+state.public.services.map(s=>'<option value="'+s.id+'">'+esc(s.title)+'</option>').join("")+'</select><div class="grid"><input id="manualDate" type="date" class="field"/><input id="manualTime" type="time" class="field"/></div><button class="btn full" onclick="createManual()">Добавить запись</button></div><div class="card" style="margin-top:12px"><h3>Закрыть день или часы</h3><input id="blockDay" type="date" class="field"/><div class="grid"><input id="from" type="time" class="field" placeholder="От"/><input id="to" type="time" class="field" placeholder="До"/></div><input id="blockReason" class="field" placeholder="Причина (необязательно)"/><p class="cap">Оставьте время пустым, чтобы закрыть весь день.</p><button class="btn full" onclick="blockDay()">Заблокировать</button></div><div class="section"><h2>Блокировки</h2></div>'+(state.master&&state.master.blocks||[]).map(b=>'<div class="item row"><div><b>'+esc(b.day.slice(0,10))+'</b><div class="sub">'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</div></div><button class="btn line" onclick="unblock('+b.id+')">Открыть</button></div>').join("")+'<div class="section"><h2>Записи</h2></div>'+(state.master&&state.master.bookings||[]).map(b=>bookingCard(b)+'<div class="flex" style="margin-bottom:15px"><button class="chip" onclick="setStatus(\''+b.id+'\',\'completed\')">Выполнено</button><button class="chip" onclick="setStatus(\''+b.id+'\',\'no_show\')">Неявка</button></div>').join("");
 if(state.page==="clients")return '<div class="section"><h2>Клиентская база</h2></div>'+(state.master&&state.master.clients||[]).map(u=>'<div class="item row"><div class="circle">♙</div><div style="flex:1"><b>'+esc(u.client_name||"Без имени")+'</b><div class="cap">Telegram ID: '+esc(u.telegram_id)+'</div></div></div>').join("")||'<div class="empty">Клиентов пока нет</div>';
-return '<div class="section"><h2>Услуги и настройки</h2></div><div class="card"><h3>Добавить услугу</h3><input id="newServiceName" class="field" placeholder="Название услуги"/><div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" value="120" placeholder="Минут"/><input id="newServicePrice" class="field" type="number" min="0" value="1700" placeholder="Цена ₽"/></div><button class="btn full" onclick="createService()">Добавить</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Рабочие дни</h2></div>'+(state.master&&state.master.schedule||[]).map(w=>'<div class="item row"><span>'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][w.weekday]+'</span><span>'+esc(w.start_time)+'–'+esc(w.end_time)+'</span><span class="pill">'+(w.active?"Рабочий":"Выходной")+'</span></div>').join("");}
+return '<div class="section"><h2>Услуги и настройки</h2></div><div class="card"><h3>Добавить услугу</h3><input id="newServiceName" class="field" placeholder="Название услуги"/><div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" value="120" placeholder="Минут"/><input id="newServicePrice" class="field" type="number" min="0" value="1700" placeholder="Цена ₽"/></div><button class="btn full" onclick="createService()">Добавить</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить график</h2></div><div class="card"><select id="weekday" class="field"><option value="0">Понедельник</option><option value="1">Вторник</option><option value="2">Среда</option><option value="3">Четверг</option><option value="4">Пятница</option><option value="5">Суббота</option><option value="6">Воскресенье</option></select><div class="grid"><input id="workStart" type="time" class="field" value="10:00"/><input id="workEnd" type="time" class="field" value="19:00"/></div><label class="sub"><input id="workEnabled" type="checkbox" checked/> Рабочий день</label><button class="btn full" style="margin-top:12px" onclick="saveSchedule()">Сохранить график</button></div><div class="section"><h2>Рабочие дни</h2></div>'+(state.master&&state.master.schedule||[]).map(w=>'<div class="item row"><span>'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][w.weekday]+'</span><span>'+esc(w.start_time)+'–'+esc(w.end_time)+'</span><span class="pill">'+(w.active?"Рабочий":"Выходной")+'</span></div>').join("");}
 function render(){nav();el("main").innerHTML=isMaster()?masterView():publicView();}
 async function loadSlots(){if(!state.serviceId||!state.date)return;try{const r=await api("/api/slots?service="+state.serviceId+"&date="+encodeURIComponent(state.date));state.slots=r.slots||[]}catch(e){state.slots=[]}render();}
 function selectDate(v){state.date=v;state.time="";loadSlots();}
@@ -269,6 +305,38 @@ function selectTime(t){state.time=t;render();}
 async function book(){try{const r=await api("/api/book",{method:"POST",body:JSON.stringify({serviceId:state.serviceId,date:state.date,time:state.time})});fail("Вы успешно записаны!");state.time="";state.slots=[];route("visits");}catch(e){fail("Не удалось записаться: "+e.message);loadSlots();}}
 async function loadBookings(){try{state.bookings=(await api("/api/bookings")).bookings||[];render()}catch{}}
 async function cancelBooking(id){if(!confirm("Отменить эту запись?"))return;try{await api("/api/cancel",{method:"POST",body:JSON.stringify({id})});loadBookings();loadMaster()}catch(e){fail(e.message)}}
+
+async function createManual(){
+  const body={name:el("manualName").value.trim(),serviceId:Number(el("manualService").value),date:el("manualDate").value,time:el("manualTime").value};
+  try{await api("/api/manual-book",{method:"POST",body:JSON.stringify(body)});loadMaster();}
+  catch(e){fail("Не удалось создать запись: "+e.message);}
+}
+async function saveSchedule(){
+  const body={weekday:Number(el("weekday").value),start:el("workStart").value,end:el("workEnd").value,active:el("workEnabled").checked};
+  try{await api("/api/schedule",{method:"POST",body:JSON.stringify(body)});loadMaster();}
+  catch(e){fail("Не удалось сохранить график: "+e.message);}
+}
+let rescheduling=null;
+function rescheduleForm(id,serviceId){
+  rescheduling={id,serviceId,date:"",time:""};
+  el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><h2>Перенос записи</h2><p class="sub">Выберите новую дату и свободное время.</p><input id="moveDate" type="date" class="field" onchange="loadMoveSlots(this.value)"/><div id="moveSlots" class="flex"></div><div class="flex" style="margin-top:15px"><button class="btn" id="moveSave" disabled onclick="submitMove()">Сохранить перенос</button><button class="btn line" onclick="el('+"'"+'modalRoot'+"'"+').innerHTML='+"'"+""+"'"+'">Закрыть</button></div></div></div>';
+}
+async function loadMoveSlots(date){
+  if(!rescheduling)return;
+  rescheduling.date=date;rescheduling.time="";
+  try{const r=await api("/api/slots?date="+encodeURIComponent(date)+"&service="+rescheduling.serviceId);el("moveSlots").innerHTML=(r.slots||[]).map(t=>'<button class="chip" onclick="chooseMoveTime('+String.fromCharCode(39)+t+String.fromCharCode(39)+')">'+t+'</button>').join("")||'<p class="sub">Нет свободных окон</p>';el("moveSave").disabled=true;}
+  catch(e){el("moveSlots").innerHTML='<p class="error">Не удалось загрузить время</p>';}
+}
+function chooseMoveTime(time){
+  rescheduling.time=time;
+  el("moveSave").disabled=false;
+  Array.from(el("moveSlots").querySelectorAll(".chip")).forEach(b=>b.classList.toggle("active",b.textContent===time));
+}
+async function submitMove(){
+  if(!rescheduling||!rescheduling.time)return;
+  try{await api("/api/reschedule",{method:"POST",body:JSON.stringify({id:rescheduling.id,date:rescheduling.date,time:rescheduling.time})});el("modalRoot").innerHTML="";rescheduling=null;if(isMaster())loadMaster();else loadBookings();}
+  catch(e){fail("Не удалось перенести запись: "+e.message);}
+}
 async function loadMaster(){if(!isMaster())return;try{state.master=await api("/api/master");render()}catch(e){fail(e.message)}}
 async function blockDay(){try{const day=el("blockDay").value, start=el("from").value,end=el("to").value;await api("/api/block",{method:"POST",body:JSON.stringify({day,startTime:start||null,endTime:end||null,reason:el("blockReason").value})});loadMaster()}catch(e){fail("Не удалось закрыть день: "+e.message)}}
 async function unblock(id){try{await api("/api/unblock",{method:"POST",body:JSON.stringify({id})});loadMaster()}catch(e){fail(e.message)}}
