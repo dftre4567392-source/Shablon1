@@ -15,6 +15,16 @@ services:
           property: connectionString
       - key: APP_URL
         value: https://bookcore-miniapp.onrender.com
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+      - key: THEME_PRIMARY
+        value: "#513548"
+      - key: THEME_ACCENT
+        value: "#8F5C79"
+      - key: THEME_BACKGROUND
+        value: "#F8F3F6"
+      - key: THEME_SURFACE
+        value: "#FFFFFF"
       - key: TENANT_TIMEZONE
         value: Europe/Moscow
       - key: TENANT_DISPLAY_NAME
