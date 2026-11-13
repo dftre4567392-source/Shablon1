@@ -1,0 +1,19 @@
+{
+  "studioName": "Студия красоты",
+  "masterName": "Ваш мастер",
+  "category": "LASH & BEAUTY",
+  "heroTitle": "Красивый взгляд начинается здесь",
+  "heroSubtitle": "Выбери процедуру и удобное время.",
+  "theme": {
+    "primary": "#513548",
+    "accent": "#8F5C79",
+    "background": "#F8F3F6",
+    "surface": "#FFFFFF"
+  },
+  "modules": {
+    "portfolio": true,
+    "waitingList": false,
+    "reviews": false
+  },
+  "payments": false
+}
