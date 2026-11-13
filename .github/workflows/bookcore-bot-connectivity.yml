@@ -1,0 +1,22 @@
+name: BOOKCORE Telegram bot connectivity
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/bookcore-bot-connectivity.yml'
+jobs:
+  bot-connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check live Telegram bot configuration
+        run: |
+          set -euo pipefail
+          host="https://bookcore-telegram.vercel.app"
+          for i in $(seq 1 8); do
+            curl --fail --silent --show-error --max-time 40 "$host/api/handler?route=%2Fapi%2Fpublic" -o /tmp/public.json && break
+            sleep 5
+          done
+          jq '{botConfigured,botUsername,masterConfigured,ready,serviceCount:(.services|length)}' /tmp/public.json
+          jq -e '.botConfigured == true and (.botUsername | type == "string") and (.services | length >= 5)' /tmp/public.json
+          echo "TELEGRAM_BOT_CONNECTED"
