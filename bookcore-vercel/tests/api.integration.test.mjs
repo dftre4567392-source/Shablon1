@@ -229,6 +229,12 @@ test("21 master sets completed and no-show; client forbidden",async()=>{
   const b=await bookTwo(h,ids.a,day,time);
   assert.equal((await h.post("/api/status",{id:b.body.id,status:"completed"},ids.a)).status,403);
   assert.equal((await h.post("/api/status",{id:b.body.id,status:"bad"},ids.master)).status,400);
+  assert.equal((await h.post("/api/status",{id:b.body.id,status:"completed"},ids.master)).status,409);
+  h.overrideStore(state=>{
+    const record=state.bookings.find(x=>x.id===b.body.id);
+    record.starts_at=new Date(Date.now()-60*60*1000).toISOString();
+    record.busy_until=new Date(Date.now()+60*60*1000).toISOString();
+  });
   assert.equal((await h.post("/api/status",{id:b.body.id,status:"completed"},ids.master)).status,200);
   assert.equal(h.readStore().bookings[0].status,"completed");
 });
