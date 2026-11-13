@@ -1,0 +1,19 @@
+{
+  "studioName": "Студия красоты",
+  "masterName": "Ваш мастер",
+  "colors": {
+    "primary": "#513548",
+    "accent": "#8F5C79",
+    "background": "#F8F3F6",
+    "surface": "#FFFFFF"
+  },
+  "heroTitle": "Красивый взгляд начинается здесь",
+  "defaultTimezone": "Europe/Moscow",
+  "payments": false,
+  "modules": {
+    "booking": true,
+    "portfolio": false,
+    "waitingList": false,
+    "reviews": false
+  }
+}
