@@ -11,6 +11,7 @@ const MASTER_IDS=new Set([MASTER,...String(process.env.ADDITIONAL_MASTER_TELEGRA
 const STUDIO=process.env.TENANT_DISPLAY_NAME||"Студия красоты";
 const MASTER_NAME=process.env.MASTER_DISPLAY_NAME||"Ваш мастер";
 const TZ=process.env.TENANT_TIMEZONE||"Europe/Moscow";
+const BRAND_COLOR=/^#[0-9a-fA-F]{6}$/.test(process.env.TENANT_ACCENT_COLOR||"")?process.env.TENANT_ACCENT_COLOR:"#513548";
 
 const APP_URL=process.env.APP_URL||"";
 let botSetupPromise=null;
@@ -227,7 +228,7 @@ async function execute(req){
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
     const bot=await ensureBotSetup();
-    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
+    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
   }
   if(route==="/api/slots"&&method==="GET"){
     const {state}=await load();
