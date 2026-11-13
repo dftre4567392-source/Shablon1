@@ -8,6 +8,37 @@ const MASTER=String(process.env.MASTER_TELEGRAM_ID||"");
 const STUDIO=process.env.TENANT_DISPLAY_NAME||"Студия красоты";
 const MASTER_NAME=process.env.MASTER_DISPLAY_NAME||"Ваш мастер";
 const TZ=process.env.TENANT_TIMEZONE||"Europe/Moscow";
+
+const APP_URL=process.env.APP_URL||"";
+let botSetupPromise=null;
+async function botCall(method,payload){
+  const response=await fetch("https://api.telegram.org/bot"+TOKEN+"/"+method,{
+    method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify(payload),signal:AbortSignal.timeout(5000)
+  });
+  const result=await response.json();
+  if(!response.ok||!result.ok)throw new Error("TELEGRAM_"+method+"_"+String(result.error_code||response.status));
+  return result.result;
+}
+async function ensureBotSetup(){
+  if(!TOKEN||!APP_URL||!process.env.TELEGRAM_WEBHOOK_SECRET)return {configured:false};
+  if(!botSetupPromise){
+    botSetupPromise=(async()=>{
+      const url=new URL(APP_URL);
+      if(url.protocol!=="https:")throw new Error("APP_URL_MUST_BE_HTTPS");
+      const webhook=url.origin+"/api/handler?route=%2Fbot%2Fwebhook";
+      const bot=await botCall("getMe",{});
+      await Promise.all([
+        botCall("setWebhook",{url:webhook,secret_token:process.env.TELEGRAM_WEBHOOK_SECRET,allowed_updates:["message"]}),
+        botCall("setChatMenuButton",{menu_button:{type:"web_app",text:"Открыть BOOKCORE",web_app:{url:url.origin}}})
+      ]);
+      console.info("BOOKCORE_TELEGRAM_BOT_CONFIGURED",bot.username||"");
+      return {configured:true,username:bot.username||null};
+    })().catch(error=>{botSetupPromise=null;console.warn("BOOKCORE_TELEGRAM_SETUP_FAILED",String(error));return {configured:false};});
+  }
+  return botSetupPromise;
+}
+
 const JSON_HEADERS={"content-type":"application/json; charset=utf-8","cache-control":"private, no-store","x-content-type-options":"nosniff"};
 const respond=(payload,status=200)=>new Response(JSON.stringify(payload),{status,headers:JSON_HEADERS});
 class HttpError extends Error{constructor(status,message){super(message);this.status=status;}}
@@ -98,9 +129,9 @@ function slots(s,date,id,ignoreId=null){
 }
 const toISO=(date,time)=>utc(date,time).toISOString();
 function timeRange(svc,date,time){const start=utc(date,time);return {starts_at:start.toISOString(),busy_until:new Date(start.getTime()+(svc.minutes+15)*60000).toISOString()};}
-async function notify(chat,text){
+async function notify(chat,text,reply_markup){
   if(!TOKEN||!chat)return;
-  try{await fetch("https://api.telegram.org/bot"+TOKEN+"/sendMessage",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:chat,text})});}catch{}
+  try{await botCall("sendMessage",{chat_id:chat,text,...(reply_markup?{reply_markup}:{})});}catch(e){console.warn("BOOKCORE_NOTIFICATION_FAILED",String(e))}
 }
 function prettyDate(value){return new Date(value).toLocaleString("ru-RU",{timeZone:TZ,dateStyle:"medium",timeStyle:"short"});}
 async function body(req){try{return await req.json()}catch{return {};}}
@@ -117,7 +148,8 @@ async function execute(req){
   }
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
-    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER});
+    const bot=await ensureBotSetup();
+    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
   }
   if(route==="/api/slots"&&method==="GET"){
     const {state}=await load();
@@ -128,7 +160,10 @@ async function execute(req){
     if(!TOKEN||!process.env.TELEGRAM_WEBHOOK_SECRET||req.headers.get("x-telegram-bot-api-secret-token")!==process.env.TELEGRAM_WEBHOOK_SECRET)fail(403,"FORBIDDEN");
     const event=await body(req);
     if(event.message&&/^\/start(?:\s|$)/.test(event.message.text||"")){
-      await notify(event.message.chat.id,"Добро пожаловать! Откройте BOOKCORE для записи: "+(process.env.APP_URL||""));
+      const message=event.message;
+      const userId=String(message.from?.id||message.chat.id);
+      const replyMarkup=APP_URL&&message.chat.type==="private"?{inline_keyboard:[[{text:"Открыть BOOKCORE",web_app:{url:APP_URL}}]]}:undefined;
+      await notify(message.chat.id,"Добро пожаловать в BOOKCORE!\nВаш Telegram ID: "+userId+"\nДля записи откройте мини-приложение.",replyMarkup);
     }
     return respond({ok:true});
   }
