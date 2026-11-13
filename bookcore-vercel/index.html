@@ -1,11 +1,28 @@
 <!doctype html><html lang="ru"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><meta name="theme-color" content="#f6f1f5"/><title>BOOKCORE — запись онлайн</title><script src="https://telegram.org/js/telegram-web-app.js"></script><style>
 :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#342b34;background:#f8f3f6;font-synthesis:none}*{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.wrap{max-width:620px;margin:auto;min-height:100dvh;padding:16px 16px 94px}.top{display:flex;justify-content:space-between;align-items:center;margin:2px 0 16px}.logo{font-weight:800;letter-spacing:2px;font-size:19px}.tiny{font-size:11px;color:#9e8b99;letter-spacing:1px}.circle{width:39px;height:39px;border-radius:50%;background:#eedbe7;display:grid;place-items:center;color:#7d5070;font-size:19px}.hero{position:relative;overflow:hidden;border-radius:25px;min-height:216px;background:linear-gradient(120deg,#4b3044,#8f5c79 60%,#d8b5c7);color:white;padding:25px 22px;box-shadow:0 12px 24px #b58ba547}.hero:before{content:"";position:absolute;width:170px;height:170px;border-radius:50%;right:-35px;top:-55px;border:34px solid #ffffff1a}.hero:after{content:"";position:absolute;width:120px;height:120px;border-radius:60%;right:28px;bottom:-65px;background:#ffffff21}.hero h1{font-size:27px;line-height:1.14;letter-spacing:-.6px;margin:18px 0 11px;max-width:290px}.hero p{font-size:13px;max-width:260px;line-height:1.5;color:#f4eaf0}.kicker{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#edd7e5}.section{margin:22px 0 12px;display:flex;justify-content:space-between;align-items:center}.section h2{font-size:19px;margin:0}.muted{color:#927e8d}.sub{font-size:13px;color:#8f808b;line-height:1.5}.btn{background:#513548;color:white;border:0;padding:14px 16px;border-radius:14px;font-weight:650;min-height:48px}.btn.soft{background:#f0dfe8;color:#63445a}.btn.line{background:white;border:1px solid #dac9d4;color:#5c4354}.btn.full{width:100%}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.card{background:white;border:1px solid #f0e5ec;border-radius:18px;padding:16px;box-shadow:0 3px 12px #6e52650b}.service{margin:10px 0;display:flex;align-items:center;justify-content:space-between;gap:10px}.service.selected{border:1.5px solid #92627e;background:#f7e9f0}.tag{font-size:11px;background:#f2e4ec;color:#865d76;padding:6px 8px;border-radius:9px}.price{font-weight:700;white-space:nowrap}.serviceName{font-weight:650;font-size:14px}.chip{padding:10px 12px;border:1px solid #e7d5df;background:white;border-radius:12px;color:#5b4755}.chip.active{background:#4f3448;color:white;border-color:#4f3448}.flex{display:flex;gap:8px;flex-wrap:wrap}.field{width:100%;border-radius:13px;background:white;border:1px solid #dfd3da;padding:12px;margin:9px 0;color:#3f3440}.dock{position:fixed;bottom:0;left:50%;transform:translateX(-50%);max-width:620px;width:100%;padding:8px 12px max(8px,env(safe-area-inset-bottom));background:#fffcfef2;display:flex;justify-content:space-around;border-top:1px solid #eddfeb;backdrop-filter:blur(18px)}.dock button{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:4px;color:#988593;font-size:10px;flex:1;padding:6px 0}.dock button.active{color:#664158;font-weight:700}.dock .ico{font-size:22px}.empty{background:white;border:1px dashed #d7c2d0;text-align:center;padding:30px 15px;border-radius:18px;color:#867583}.notice{background:#fff8e7;border:1px solid #edd7a8;border-radius:14px;padding:12px;font-size:12px;color:#796448;line-height:1.5}.row{display:flex;justify-content:space-between;align-items:center;gap:14px}.item{background:white;border:1px solid #f0e5ec;padding:14px;border-radius:14px;margin:9px 0}.danger{color:#b1516b}.value{font-size:24px;font-weight:800;margin:9px 0 3px}.pill{border-radius:9px;padding:5px 8px;font-size:11px;background:#eaf5e9;color:#558159}.line{height:1px;background:#f0e6ec;margin:12px 0}h3{font-size:15px}.overlay{position:fixed;inset:0;background:#291a27aa;display:grid;place-items:center;padding:18px;z-index:5}.modal{background:#fbf8fa;border-radius:23px;max-width:440px;width:100%;padding:24px}.error{color:#ad395c;font-size:12px;margin:6px 0}.ok{color:#4b8060}.cap{font-size:11px;color:#988b95}.hint{background:#f4e9f0;color:#795468;border-radius:13px;padding:12px;font-size:12px}.hide{display:none}.loading{opacity:.65;pointer-events:none}@media(min-width:600px){.wrap{padding-top:25px}.hero{min-height:230px}}@media(prefers-reduced-motion:no-preference){.card,.btn,.chip{transition:all .17s ease}.btn:active,.chip:active{transform:scale(.98)}}
 .profile-avatar{width:48px;height:48px;min-width:48px;overflow:hidden;flex-shrink:0}.telegram-avatar{display:block;width:100%;height:100%;object-fit:cover;border-radius:50%}
+
+.service-check{margin-top:7px;display:inline-grid;place-items:center;width:24px;height:24px;border:1.5px solid #bd90aa;border-radius:8px;color:#9d6786;font-weight:800}
+.service.selected .service-check{background:#70475f;border-color:#70475f;color:white}
+.booking-total{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px;font-size:15px}
+.book-calendar{margin-top:11px;border:1px solid #efe1e9;border-radius:15px;background:#fff;overflow:hidden;padding:11px 10px}
+.cal-header{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;font-size:14px;min-height:38px}
+.cal-nav{border:0;background:#f3e8ef;color:#64465b;width:38px;height:38px;border-radius:11px;font-size:26px;display:grid;place-items:center}
+.cal-nav:disabled{opacity:.25}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;text-align:center}
+.cal-weekday{font-size:11px;color:#a48c9b;font-weight:700;padding:5px 0}
+.cal-day{border:1px solid transparent;background:#fbf7fa;color:#4c3345;border-radius:10px;min-height:39px;font-size:13px;padding:0;display:grid;place-items:center}
+.cal-day.today{border-color:#c29db5}
+.cal-day.chosen{background:#583a4f;color:#fff;font-weight:800}
+.cal-day:disabled{background:transparent;color:#cfc1cb;opacity:.45;cursor:default}
+.cal-day:focus-visible,.service:focus-visible{outline:2px solid #946080;outline-offset:2px}
+.cal-caption{text-align:center;color:#9c8495;font-size:11px;margin-top:11px;line-height:1.5}
+
 </style></head><body><main class="wrap"><div class="top"><div><div class="logo">✦ BOOKCORE</div><div class="tiny">BEAUTY APPOINTMENTS</div></div><div class="circle">✿</div></div><div id="main"><div class="empty">Загружаем студию…</div></div></main><nav id="dock" class="dock"></nav><div id="modalRoot"></div><script>
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceId:0,date:"",time:"",slots:[],bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false};
+const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -15,8 +32,100 @@ const isMaster=()=>state.me&&state.me.role==="master";
 async function init(){try{state.public=await api("/api/public");if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}render();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
 function route(p){state.page=p;render();if(p==="visits")loadBookings();if(p==="calendar"||p==="clients"||p==="settings"||p==="overview")loadMaster();}
 function nav(){const n=isMaster()?[["overview","⌂","Обзор"],["calendar","▦","Календарь"],["clients","♧","Клиенты"],["settings","⚙","Настройки"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
-function serviceCards(){return state.public.services.map(s=>'<div class="card service '+(state.serviceId===s.id?"selected":"")+'" onclick="chooseService('+s.id+')"><div><div class="serviceName">'+esc(s.title)+'</div><div class="sub">'+esc(s.description||s.minutes+" мин")+'</div><div class="cap">'+s.minutes+' мин</div></div><div style="text-align:right"><div class="price">'+rub(s.price)+'</div><div style="color:#ad7a95;margin-top:7px">'+(state.serviceId===s.id?"●":"○")+'</div></div></div>').join("")||'<div class="empty">Услуги будут доступны после настройки сервера</div>';}
-function chooseService(id){state.serviceId=id;state.time="";state.slots=[];render();if(state.date)loadSlots();}
+function selectedServices(){
+  return (state.public?.services||[]).filter(s=>state.serviceIds.includes(s.id));
+}
+function selectionTotal(){
+  const list=selectedServices();
+  return {count:list.length,minutes:list.reduce((sum,s)=>sum+s.minutes,0),price:list.reduce((sum,s)=>sum+s.price,0)};
+}
+function serviceCards(){
+  const services=state.public?.services||[];
+  return services.map(s=>{
+    const active=state.serviceIds.includes(s.id);
+    return '<div role="checkbox" aria-checked="'+active+'" tabindex="0" class="card service '+(active?"selected":"")+
+      '" onclick="chooseService('+s.id+')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();chooseService('+s.id+')}">'+
+      '<div><div class="serviceName">'+esc(s.title)+'</div><div class="sub">'+esc(s.description||s.minutes+" мин")+
+      '</div><div class="cap">'+s.minutes+' мин</div></div><div style="text-align:right"><div class="price">'+rub(s.price)+
+      '</div><div class="service-check">'+(active?"✓":"＋")+'</div></div></div>';
+  }).join("")||'<div class="empty">Услуги будут доступны после настройки сервера</div>';
+}
+function chooseService(id){
+  const selected=state.serviceIds.includes(id);
+  const next=selected?state.serviceIds.filter(x=>x!==id):[...state.serviceIds,id];
+  if(next.length>6)return fail("Можно выбрать до 6 услуг в одной записи");
+  const duration=(state.public?.services||[]).filter(x=>next.includes(x.id)).reduce((a,b)=>a+b.minutes,0);
+  if(duration>600)return fail("Общая длительность превышает 10 часов. Выберите меньше услуг.");
+  state.serviceIds=next;
+  state.time="";state.slots=[];state.slotsError="";state.slotsLoading=false;
+  render();
+  if(state.date&&state.serviceIds.length)void loadSlots();
+}
+function studioToday(){
+  const tz=state.public?.timezone||"Europe/Moscow";
+  const p=new Intl.DateTimeFormat("en-US",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+  const v=Object.fromEntries(p.map(x=>[x.type,x.value]));
+  return v.year+"-"+v.month+"-"+v.day;
+}
+function studioMaxDate(){
+  const day=new Date(studioToday()+"T00:00:00Z");
+  day.setUTCDate(day.getUTCDate()+45);
+  return day.toISOString().slice(0,10);
+}
+function validCalendarDate(value){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(value)))return false;
+  const d=new Date(value+"T00:00:00Z");
+  return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===value&&value>=studioToday()&&value<=studioMaxDate();
+}
+function visibleMonth(){
+  const initial=studioToday().slice(0,7)+"-01";
+  if(!state.calendarMonth||!/^\d{4}-\d{2}-01$/.test(state.calendarMonth))state.calendarMonth=initial;
+  if(state.calendarMonth<initial)state.calendarMonth=initial;
+  if(state.calendarMonth>studioMaxDate().slice(0,7)+"-01")state.calendarMonth=studioMaxDate().slice(0,7)+"-01";
+  return state.calendarMonth;
+}
+function changeMonth(delta){
+  const current=new Date(visibleMonth()+"T00:00:00Z");
+  current.setUTCMonth(current.getUTCMonth()+delta);
+  const next=current.toISOString().slice(0,7)+"-01";
+  if(next<studioToday().slice(0,7)+"-01"||next>studioMaxDate().slice(0,7)+"-01")return;
+  state.calendarMonth=next;
+  render();
+}
+function calendarMarkup(){
+  const month=visibleMonth();
+  const view=new Date(month+"T00:00:00Z");
+  const y=view.getUTCFullYear(),m=view.getUTCMonth();
+  const offset=(view.getUTCDay()+6)%7;
+  const length=new Date(Date.UTC(y,m+1,0)).getUTCDate();
+  const previous=month>studioToday().slice(0,7)+"-01";
+  const next=month<studioMaxDate().slice(0,7)+"-01";
+  const title=new Intl.DateTimeFormat("ru-RU",{month:"long",year:"numeric",timeZone:"UTC"}).format(view);
+  const week=["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(w=>'<span class="cal-weekday">'+w+'</span>').join("");
+  let days="";
+  for(let i=0;i<offset;i++)days+='<span class="cal-empty" aria-hidden="true"></span>';
+  for(let day=1;day<=length;day++){
+    const date=y+"-"+String(m+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");
+    const enabled=validCalendarDate(date);
+    const active=state.date===date;
+    const today=date===studioToday();
+    days+='<button type="button" class="cal-day'+(active?" chosen":"")+(today?" today":"")+'"'+
+      (enabled?' onclick="selectDate(\''+date+'\')"':' disabled')+
+      ' aria-label="'+esc(date)+'" aria-pressed="'+active+'">'+day+'</button>';
+  }
+  return '<div class="book-calendar"><div class="cal-header"><button type="button" class="cal-nav" onclick="changeMonth(-1)"'+(previous?"":" disabled")+' aria-label="Предыдущий месяц">‹</button>'+
+    '<b>'+esc(title.charAt(0).toUpperCase()+title.slice(1))+'</b>'+
+    '<button type="button" class="cal-nav" onclick="changeMonth(1)"'+(next?"":" disabled")+' aria-label="Следующий месяц">›</button></div>'+
+    '<div class="cal-grid">'+week+days+'</div><div class="cal-caption">Выберите день. Доступна запись на ближайшие 45 дней.</div></div>';
+}
+function slotsMarkup(){
+  if(!state.serviceIds.length)return '<p class="cap">Сначала выберите одну или несколько услуг.</p>';
+  if(!state.date)return '<p class="cap">Выберите дату в календаре.</p>';
+  if(state.slotsLoading)return '<p class="cap">Проверяем свободное время…</p>';
+  if(state.slotsError)return '<p class="error">'+esc(state.slotsError)+'</p>';
+  return state.slots.length?state.slots.map(t=>'<button type="button" class="chip '+(state.time===t?"active":"")+
+    '" onclick="selectTime(\''+t+'\')">'+t+'</button>').join(""):'<p class="cap">На этот день свободных окон нет. Выберите другой.</p>';
+}
 function homeBookingCard(){
   const master=esc(state.public.masterName||"Мастер");
   const studio=esc(state.public.studio||"Студия");
@@ -52,13 +161,33 @@ async function loadTelegramAvatar(){
   }finally{state.avatarLoading=false;}
 }
 function publicView(){if(state.page==="home")return '<div class="hero"><div class="kicker">ONLINE BOOKING</div><h1>Ваше время — ваш выбор</h1><p>Записывайтесь к мастеру на удобное время без звонков и переписок.</p><button class="btn soft" onclick="route(\'booking\')">Записаться →</button></div>'+homeBookingCard();
-if(state.page==="booking")return '<div class="section"><h2>Выберите процедуру</h2></div><div class="sub">Стоимость указана для ознакомления, оплата вне приложения.</div>'+serviceCards()+'<div class="section"><h2>Дата и время</h2></div><div class="card"><label class="sub" for="date">Выберите свободную дату</label><input id="date" type="date" class="field" value="'+esc(state.date)+'" onchange="selectDate(this.value)" min="'+new Date().toISOString().slice(0,10)+'"/><div class="sub">Свободное время</div><div class="flex" id="slotList">'+(state.slots.length?state.slots.map(x=>'<button class="chip '+(state.time===x?"active":"")+'" onclick="selectTime(\''+x+'\')">'+x+'</button>').join(""):'<p class="cap">Сначала выберите услугу и дату</p>')+'</div></div><div class="card" style="margin-top:15px"><div class="row"><b>К записи</b><b>'+rub((state.public.services.find(x=>x.id===state.serviceId)||{}).price)+'</b></div><button class="btn full" style="margin-top:14px" '+(!state.time||!initial||!state.public.ready?"disabled":"")+' onclick="book()">Подтвердить запись</button>'+(!initial?'<div class="hint" style="margin-top:10px">Для записи откройте приложение через Telegram-бота.</div>':!state.public.ready?'<div class="hint" style="margin-top:10px">Онлайн-запись включится после подключения бота и мастера.</div>':'')+'</div>';
+if(state.page==="booking"){
+  const total=selectionTotal();
+  const details=total.count?'<div class="booking-total"><b>Выбрано услуг: '+total.count+'</b><span>'+rub(total.price)+'</span></div>'+
+    '<div class="sub">Общая длительность: '+total.minutes+' мин. На все услуги резервируется одно непрерывное время.</div>':'<div class="sub">Можно отметить несколько услуг — они будут объединены в одну запись.</div>';
+  return '<div class="section"><h2>Выберите услуги</h2></div>'+
+    '<div class="sub">Отметьте одну или несколько процедур. Сумма и время рассчитываются автоматически.</div>'+
+    serviceCards()+ '<div class="card" style="margin-top:13px">'+details+'</div>'+
+    '<div class="section"><h2>Дата и время</h2></div>'+
+    '<div class="card"><div class="sub">Выберите свободную дату</div>'+calendarMarkup()+
+    '<div class="sub" style="margin:15px 0 9px">Свободное время</div>'+
+    '<div class="flex" id="slotList">'+slotsMarkup()+'</div></div>'+
+    '<div class="card" style="margin-top:15px"><div class="row"><b>Итого</b><b>'+rub(total.price)+'</b></div>'+
+    '<div class="sub" style="margin-top:8px">'+(state.date?'Дата: '+esc(state.date):'Дата ещё не выбрана')+
+    (state.time?', время: '+esc(state.time):'')+'</div>'+
+    '<button type="button" class="btn full" style="margin-top:14px" '+
+    (!total.count||!state.time||!initial||!state.public.ready||state.bookingPending?"disabled":"")+
+    ' onclick="book()">'+(state.bookingPending?"Сохраняем запись…":"Подтвердить запись")+'</button>'+
+    (!initial?'<div class="hint" style="margin-top:10px">Для записи откройте приложение через Telegram-бота.</div>':
+      !state.public.ready?'<div class="hint" style="margin-top:10px">Онлайн-запись включится после подключения бота и мастера.</div>':'')+
+    '</div>';
+}
 if(state.page==="visits")return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':state.bookings.length?state.bookings.map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>');
 return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>';}
 function bookingCard(b){
   const date=new Date(b.starts_at).toLocaleString("ru-RU",{dateStyle:"medium",timeStyle:"short",timeZone:"Europe/Moscow"});
   const quote=String.fromCharCode(39);
-  const actions=b.status==="confirmed"?'<div class="flex"><button class="btn line" onclick="rescheduleForm('+quote+b.id+quote+','+Number(b.service_id)+')">Перенести</button><button class="btn line" onclick="cancelBooking('+quote+b.id+quote+')">Отменить</button></div>':"";
+  const actions=b.status==="confirmed"?'<div class="flex"><button class="btn line" onclick="rescheduleForm('+quote+b.id+quote+','+JSON.stringify(b.service_ids||[b.service_id])+')">Перенести</button><button class="btn line" onclick="cancelBooking('+quote+b.id+quote+')">Отменить</button></div>':"";
   return '<div class="card" style="margin-bottom:10px"><div class="row"><b>'+esc(b.service_name)+'</b><span class="pill">'+esc(b.status)+'</span></div><div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b>'+actions+'</div></div>';
 }
 function masterView(){if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid"><div class="card"><div class="sub">Активных записей</div><div class="value">'+recent.length+'</div></div><div class="card"><div class="sub">Всего клиентов</div><div class="value">'+(state.master&&state.master.clients||[]).length+'</div></div></div><div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
@@ -66,10 +195,42 @@ if(state.page==="calendar")return '<div class="section"><h2>Календарь �
 if(state.page==="clients")return '<div class="section"><h2>Клиентская база</h2></div>'+(state.master&&state.master.clients||[]).map(u=>'<div class="item row"><div class="circle">♙</div><div style="flex:1"><b>'+esc(u.client_name||"Без имени")+'</b><div class="cap">Telegram ID: '+esc(u.telegram_id)+'</div></div></div>').join("")||'<div class="empty">Клиентов пока нет</div>';
 return '<div class="section"><h2>Услуги и настройки</h2></div><div class="card"><h3>Добавить услугу</h3><input id="newServiceName" class="field" placeholder="Название услуги"/><div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" value="120" placeholder="Минут"/><input id="newServicePrice" class="field" type="number" min="0" value="1700" placeholder="Цена ₽"/></div><button class="btn full" onclick="createService()">Добавить</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить график</h2></div><div class="card"><select id="weekday" class="field"><option value="0">Понедельник</option><option value="1">Вторник</option><option value="2">Среда</option><option value="3">Четверг</option><option value="4">Пятница</option><option value="5">Суббота</option><option value="6">Воскресенье</option></select><div class="grid"><input id="workStart" type="time" class="field" value="10:00"/><input id="workEnd" type="time" class="field" value="19:00"/></div><label class="sub"><input id="workEnabled" type="checkbox" checked/> Рабочий день</label><button class="btn full" style="margin-top:12px" onclick="saveSchedule()">Сохранить график</button></div><div class="section"><h2>Рабочие дни</h2></div>'+(state.master&&state.master.schedule||[]).map(w=>'<div class="item row"><span>'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][w.weekday]+'</span><span>'+esc(w.start_time)+'–'+esc(w.end_time)+'</span><span class="pill">'+(w.active?"Рабочий":"Выходной")+'</span></div>').join("");}
 function render(){nav();el("main").innerHTML=isMaster()?masterView():publicView();}
-async function loadSlots(){if(!state.serviceId||!state.date)return;try{const r=await api("/api/slots?service="+state.serviceId+"&date="+encodeURIComponent(state.date));state.slots=r.slots||[]}catch(e){state.slots=[]}render();}
-function selectDate(v){state.date=v;state.time="";loadSlots();}
-function selectTime(t){state.time=t;render();}
-async function book(){try{const r=await api("/api/book",{method:"POST",body:JSON.stringify({serviceId:state.serviceId,date:state.date,time:state.time})});fail("Вы успешно записаны!");state.time="";state.slots=[];route("visits");}catch(e){fail("Не удалось записаться: "+e.message);loadSlots();}}
+async function loadSlots(){
+  const date=state.date,ids=[...state.serviceIds];
+  if(!date||!ids.length){state.slots=[];state.slotsLoading=false;render();return;}
+  const key=date+"|"+ids.join(",");
+  state.slotsLoading=true;state.slotsError="";render();
+  try{
+    const res=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+encodeURIComponent(ids.join(",")));
+    if(state.date+"|"+state.serviceIds.join(",")!==key)return;
+    state.slots=res.slots||[];
+  }catch(error){
+    if(state.date+"|"+state.serviceIds.join(",")!==key)return;
+    state.slots=[];state.slotsError=error.message||"Не удалось загрузить свободное время.";
+  }finally{
+    if(state.date+"|"+state.serviceIds.join(",")===key){state.slotsLoading=false;render();}
+  }
+}
+function selectDate(date){
+  if(!validCalendarDate(date))return fail("Дата недоступна. Выберите день в пределах ближайших 45 дней.");
+  state.date=date;state.calendarMonth=date.slice(0,7)+"-01";
+  state.time="";state.slots=[];state.slotsError="";
+  if(state.serviceIds.length)void loadSlots();else render();
+}
+function selectTime(time){if(!state.slots.includes(time))return;state.time=time;render();}
+async function book(){
+  if(state.bookingPending||!state.serviceIds.length||!validCalendarDate(state.date)||!state.slots.includes(state.time)){
+    return fail("Выберите услуги, доступную дату и свободное время.");
+  }
+  state.bookingPending=true;render();
+  try{
+    await api("/api/book",{method:"POST",body:JSON.stringify({serviceIds:state.serviceIds,date:state.date,time:state.time})});
+    state.time="";state.slots=[];state.date="";
+    fail("Вы успешно записаны!");
+    route("visits");
+  }catch(error){fail("Не удалось записаться: "+error.message);if(state.date)void loadSlots();}
+  finally{state.bookingPending=false;render();}
+}
 async function loadBookings(){try{state.bookings=(await api("/api/bookings")).bookings||[];render()}catch{}}
 async function cancelBooking(id){if(!confirm("Отменить эту запись?"))return;try{await api("/api/cancel",{method:"POST",body:JSON.stringify({id})});loadBookings();loadMaster()}catch(e){fail(e.message)}}
 
@@ -84,14 +245,14 @@ async function saveSchedule(){
   catch(e){fail("Не удалось сохранить график: "+e.message);}
 }
 let rescheduling=null;
-function rescheduleForm(id,serviceId){
-  rescheduling={id,serviceId,date:"",time:""};
+function rescheduleForm(id,serviceIds){
+  rescheduling={id,serviceIds,date:"",time:""};
   el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><h2>Перенос записи</h2><p class="sub">Выберите новую дату и свободное время.</p><input id="moveDate" type="date" class="field" onchange="loadMoveSlots(this.value)"/><div id="moveSlots" class="flex"></div><div class="flex" style="margin-top:15px"><button class="btn" id="moveSave" disabled onclick="submitMove()">Сохранить перенос</button><button class="btn line" onclick="el('+"'"+'modalRoot'+"'"+').innerHTML='+"'"+""+"'"+'">Закрыть</button></div></div></div>';
 }
 async function loadMoveSlots(date){
   if(!rescheduling)return;
   rescheduling.date=date;rescheduling.time="";
-  try{const r=await api("/api/slots?date="+encodeURIComponent(date)+"&service="+rescheduling.serviceId);el("moveSlots").innerHTML=(r.slots||[]).map(t=>'<button class="chip" onclick="chooseMoveTime('+String.fromCharCode(39)+t+String.fromCharCode(39)+')">'+t+'</button>').join("")||'<p class="sub">Нет свободных окон</p>';el("moveSave").disabled=true;}
+  try{const r=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+encodeURIComponent(rescheduling.serviceIds.join(",")));el("moveSlots").innerHTML=(r.slots||[]).map(t=>'<button class="chip" onclick="chooseMoveTime('+String.fromCharCode(39)+t+String.fromCharCode(39)+')">'+t+'</button>').join("")||'<p class="sub">Нет свободных окон</p>';el("moveSave").disabled=true;}
   catch(e){el("moveSlots").innerHTML='<p class="error">Не удалось загрузить время</p>';}
 }
 function chooseMoveTime(time){
