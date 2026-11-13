@@ -107,3 +107,85 @@ test("Real Chromium mobile: client + master full booking scenario", {timeout:110
     console.log("REAL_BROWSER_E2E_PASS: onboarding, 2 services, no-year calendar, booking, reschedule, guest, master manual booking, mobile layout");
   }finally{await browser.close();}
 });
+
+test("Adversarial Chromium: bad input, rapid navigation, stale requests and responsive screens",{timeout:100000},async()=>{
+ const browser=await chromium.launch({headless:true,args:["--no-sandbox"]});
+ try{
+  const guest=await createContext(browser,null);
+  await navigate(guest.page,"Запись");
+  assert.equal(await guest.page.getByRole("button",{name:"Подтвердить запись"}).isDisabled(),true);
+  assert.equal(guest.errors.length,0);
+  await guest.context.close();
+
+  const client=await createContext(browser,ids.c);
+  const p=client.page;
+  await p.locator("#newName").waitFor({timeout:10000});
+  await p.locator("#newName").fill("\u200b\u200b");
+  await p.getByRole("button",{name:"Продолжить"}).click();
+  await p.locator("#newName").waitFor();
+  await p.locator("#newName").fill("Елена");
+  await p.getByRole("button",{name:"Продолжить"}).click();
+  await p.locator("#newName").waitFor({state:"detached"});
+  await navigate(p,"Запись");
+
+  // Repeated switching must never leave a stale selection or overflow.
+  const service=p.locator(".service").filter({hasText:"Классическое наращивание"});
+  await service.click();await service.click();await service.click();
+  assert.match(await p.locator(".booking-total").innerText(),/1\s*700/);
+  for(const width of [320,360,390,430,768]){
+    await p.setViewportSize({width,height:844});
+    await noHorizontalOverflow(p);
+  }
+  await p.setViewportSize({width:390,height:844});
+
+  // Closing a modal while network request is pending must not throw or reopen it.
+  await p.evaluate(async()=>{
+    const original=window.api;
+    window.api=()=>new Promise(resolve=>window.__finishMove=resolve);
+    const today=new Date(studioToday()+"T00:00:00Z");
+    today.setUTCDate(today.getUTCDate()+8);
+    const target=today.toISOString().slice(0,10);
+    rescheduleForm("fake-booking",[1]);
+    selectMoveDate(target);
+    closeMoveModal();
+    window.__finishMove({slots:["10:00"]});
+    await new Promise(resolve=>setTimeout(resolve,20));
+    window.api=original;
+  });
+  assert.equal(await p.locator("#modalRoot").innerText(),"");
+
+  // Delayed earlier slots must not overwrite the selected latest date.
+  const actual=await p.evaluate(async()=>{
+    const original=window.api,requests=[];
+    window.api=()=>new Promise(resolve=>requests.push(resolve));
+    const base=new Date(studioToday()+"T00:00:00Z");
+    const day=n=>new Date(base.getTime()+n*86400000).toISOString().slice(0,10);
+    rescheduleForm("fake-booking",[1]);selectMoveDate(day(6));selectMoveDate(day(7));
+    requests[1]({slots:["15:00"]});
+    await new Promise(resolve=>setTimeout(resolve,10));
+    requests[0]({slots:["10:00"]});
+    await new Promise(resolve=>setTimeout(resolve,10));
+    const result=document.getElementById("moveSlots").innerText;
+    closeMoveModal();window.api=original;return result;
+  });
+  assert.match(actual,/15:00/);
+  assert.doesNotMatch(actual,/10:00/);
+  assert.equal(client.errors.length,0,client.errors.join("; "));
+  await p.screenshot({path:new URL("client-adversarial.png",screenshots).pathname,fullPage:true});
+  await client.context.close();
+
+  const master=await createContext(browser,ids.master);
+  await master.page.getByRole("heading",{name:"Кабинет мастера"}).waitFor();
+  await navigate(master.page,"Календарь");
+  await master.page.locator("#manualName").fill("Невидимый тест");
+  await master.page.locator("#manualService").selectOption("5");
+  await master.page.locator("#manualDate").fill("9999-12-31");
+  await master.page.locator("#manualTime").fill("10:00");
+  await master.page.getByRole("button",{name:"Добавить запись"}).click();
+  await master.page.waitForTimeout(150);
+  assert.equal(master.errors.length,0,master.errors.join("; "));
+  await master.page.screenshot({path:new URL("master-invalid-date.png",screenshots).pathname,fullPage:true});
+  await master.context.close();
+  console.log("ADVERSARIAL_CHROMIUM_PASS: invalid names, 320-768px layouts, stale response, closed modal and future year");
+ }finally{await browser.close();}
+});
