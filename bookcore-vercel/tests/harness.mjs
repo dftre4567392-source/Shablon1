@@ -9,8 +9,12 @@ const SOURCE=fs.readFileSync(new URL("../api/handler.ts",import.meta.url),"utf8"
 export const ids={master:10001,a:20002,b:20003,c:20004};
 const BOT_TOKEN="123456:test-only-fake-token";
 const WEBHOOK_SECRET="test-webhook-secret";
-export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additionalMasters="",storagePath=null,services=null,accentColor=null}={}){
+export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additionalMasters="",storagePath=null,services=null,accentColor=null,fixedNow=null}={}){
   let storage=null,version=0,conflictBudget=forcedConflicts;
+  const MockDate=fixedNow?class extends Date{
+    constructor(...args){super(...(args.length?args:[fixedNow]));}
+    static now(){return new Date(fixedNow).getTime();}
+  }:Date;
   const messages=[],botSettings=[];
   class BlobPreconditionFailedError extends Error {}
   const etag=()=>'"stable-head-etag-'+version+'"';
@@ -54,7 +58,7 @@ export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additi
     createHmac:crypto.createHmac,timingSafeEqual:crypto.timingSafeEqual,randomUUID:crypto.randomUUID,
     get,head,put,BlobPreconditionFailedError,fetch:fakeFetch,
     Request,Response,Headers,URL,URLSearchParams,Blob,AbortSignal,
-    TextDecoder,TextEncoder,Buffer,setTimeout,clearTimeout,Date,Intl
+    TextDecoder,TextEncoder,Buffer,setTimeout,clearTimeout,Date:MockDate,Intl
   };
   vm.createContext(sandbox);
   vm.runInContext(SOURCE,sandbox,{filename:"bookcore-server-under-test.js"});
