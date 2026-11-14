@@ -91,16 +91,26 @@ const fmt=(m)=>pad(Math.floor(m/60))+":"+pad(m%60);
 const studioFormatter=new Intl.DateTimeFormat("en-US",{timeZone:TZ,
   year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"});
 function utc(date,time){
+  if(!validDate(date)||!validTime(time))return null;
   const [y,mo,d]=date.split("-").map(Number),[h,m]=time.split(":").map(Number);
   const intended=Date.UTC(y,mo-1,d,h,m);
-  let guess=intended;
-  for(let i=0;i<4;i++){
-    const entries=Object.fromEntries(studioFormatter.formatToParts(new Date(guess)).map(x=>[x.type,x.value]));
-    const actual=Date.UTC(Number(entries.year),Number(entries.month)-1,Number(entries.day),Number(entries.hour),Number(entries.minute));
-    if(actual===intended)break;
-    guess+=intended-actual;
+  // Sample offsets on the surrounding days. Spring gaps produce zero valid matches;
+  // autumn repeated hours produce two. Neither can silently be booked as another hour.
+  const offsetCandidates=new Set();
+  for(const shift of [-86400000,0,86400000]){
+    const instant=intended+shift;
+    const p=Object.fromEntries(studioFormatter.formatToParts(new Date(instant)).map(x=>[x.type,x.value]));
+    const displayed=Date.UTC(Number(p.year),Number(p.month)-1,Number(p.day),Number(p.hour),Number(p.minute));
+    offsetCandidates.add(displayed-instant);
   }
-  return new Date(guess);
+  const matches=new Set();
+  for(const offset of offsetCandidates){
+    const instant=intended-offset;
+    const p=Object.fromEntries(studioFormatter.formatToParts(new Date(instant)).map(x=>[x.type,x.value]));
+    const shown=Date.UTC(Number(p.year),Number(p.month)-1,Number(p.day),Number(p.hour),Number(p.minute));
+    if(shown===intended)matches.add(instant);
+  }
+  return matches.size===1?new Date([...matches][0]):null;
 }
 const DEFAULT_SERVICES=[
   {id:1,title:"Классическое наращивание",description:"Естественный и выразительный взгляд",minutes:120,price:1700,active:true},
@@ -192,17 +202,20 @@ function daySchedule(s,date){
   const day=(new Date(date+"T12:00:00Z").getUTCDay()+6)%7;
   return s.schedule.find(x=>x.weekday===day);
 }
-function slots(s,date,ids,ignoreId=null){
+function slots(s,date,ids,ignoreId=null,fixedMinutes=null){
   if(!bookableDate(date))return [];
-  const bundle=resolveServices(s,ids);
-  if(!bundle||bundle.minutes>600)return [];
+  // Existing appointments reserve their original duration, even if catalog items change.
+  const bundle=fixedMinutes===null?resolveServices(s,ids):{minutes:fixedMinutes};
+  if(!bundle||!Number.isInteger(bundle.minutes)||bundle.minutes<15||bundle.minutes>600)return [];
   const sch=daySchedule(s,date);
   if(!sch||!sch.active||!validTime(sch.start_time)||!validTime(sch.end_time))return [];
   const now=Date.now();
   if(s.blocks.some(x=>x.day===date&&!x.start_time))return [];
   const result=[];
   for(let m=minutes(sch.start_time);m+bundle.minutes+15<=minutes(sch.end_time);m+=15){
-    const time=fmt(m),start=utc(date,time).getTime(),end=start+(bundle.minutes+15)*60000;
+    const time=fmt(m),local=utc(date,time);
+    if(!local)continue;
+    const start=local.getTime(),end=start+(bundle.minutes+15)*60000;
     if(start<now+4*3600000)continue;
     if(m<15*60&&m+bundle.minutes+15>14*60)continue;
     if(s.blocks.some(x=>x.day===date&&x.start_time&&m<minutes(x.end_time)&&m+bundle.minutes+15>minutes(x.start_time)))continue;
@@ -211,8 +224,19 @@ function slots(s,date,ids,ignoreId=null){
   }
   return result;
 }
-const toISO=(date,time)=>utc(date,time).toISOString();
-function timeRange(svc,date,time){const start=utc(date,time);return {starts_at:start.toISOString(),busy_until:new Date(start.getTime()+(svc.minutes+15)*60000).toISOString()};}
+const toISO=(date,time)=>utc(date,time)?.toISOString()||null;
+function timeRange(svc,date,time){
+  const start=utc(date,time);
+  if(!start)fail(400,"INVALID_LOCAL_TIME");
+  return {starts_at:start.toISOString(),busy_until:new Date(start.getTime()+(svc.minutes+15)*60000).toISOString()};
+}
+function originalBookingMinutes(b){
+  // Bookings created before the snapshot field was added retain the original
+  // booked interval in busy_until, including the 15-minute buffer.
+  if(Number.isInteger(b.service_minutes)&&b.service_minutes>=15&&b.service_minutes<=600)return b.service_minutes;
+  const calculated=(Date.parse(b.busy_until)-Date.parse(b.starts_at))/60000-15;
+  return Number.isInteger(calculated)&&calculated>=15&&calculated<=600?calculated:null;
+}
 async function notify(chat,text,reply_markup){
   if(!TOKEN||!chat)return;
   try{await botCall("sendMessage",{chat_id:chat,text,...(reply_markup?{reply_markup}:{})});}catch(e){console.warn("BOOKCORE_NOTIFICATION_FAILED",String(e))}
@@ -321,7 +345,7 @@ async function execute(req){
       if(!bundle||bundle.minutes>600)fail(400,"INVALID_SERVICES");
       if(!slots(s,date,bundle.ids).includes(time))fail(409,"TIME_NOT_AVAILABLE");
       const appointment={id:randomUUID(),tenant:"default",telegram_id:auth.id,name,
-        service_id:bundle.ids[0],service_ids:bundle.ids,service_name:bundle.name,
+        service_id:bundle.ids[0],service_ids:bundle.ids,service_minutes:bundle.minutes,service_name:bundle.name,
         price:bundle.price,...timeRange(bundle,date,time),status:"confirmed",created_at:new Date().toISOString()};
       s.bookings.push(appointment);
       return appointment;
@@ -353,9 +377,12 @@ async function execute(req){
       if(x.status!=="confirmed")fail(409,"NOT_ACTIVE");
       if(!auth.master&&x.telegram_id!==auth.id)fail(403,"FORBIDDEN");
       if(!auth.master&&Date.parse(x.starts_at)-Date.now()<12*3600000)fail(409,"TOO_LATE_TO_RESCHEDULE");
-      const bundle=resolveServices(s,x.service_ids||[x.service_id]);
-      if(!bundle||!slots(s,date,bundle.ids,x.id).includes(time))fail(409,"TIME_NOT_AVAILABLE");
-      Object.assign(x,timeRange(bundle,date,time));return {...x};
+      const originalMinutes=originalBookingMinutes(x);
+      if(!originalMinutes||
+         !slots(s,date,x.service_ids||[x.service_id],x.id,originalMinutes).includes(time))
+        fail(409,"TIME_NOT_AVAILABLE");
+      Object.assign(x,timeRange({minutes:originalMinutes},date,time),{service_minutes:originalMinutes});
+      return {...x};
     });
     await notify(booking.telegram_id,"Запись перенесена: "+prettyDate(booking.starts_at));
     if(!auth.master)await notifyMasters("Клиент перенёс запись: "+booking.name);
@@ -372,7 +399,9 @@ async function execute(req){
     const b=await body(req),day=String(b.day||""),start=b.startTime||null,end=b.endTime||null;
     if(!blockableDate(day)||(start||end)&&(!validTime(start)||!validTime(end)||minutes(start)>=minutes(end)))fail(400,"INVALID_BLOCK");
     const block=await mutate(s=>{
-      const a=utc(day,start||"00:00").getTime(),z=utc(day,end||"23:59").getTime();
+      const startInstant=utc(day,start||"00:00"),endInstant=utc(day,end||"23:59");
+      if(!startInstant||!endInstant)fail(400,"INVALID_LOCAL_TIME");
+      const a=startInstant.getTime(),z=endInstant.getTime();
       const count=s.bookings.filter(b=>b.status==="confirmed"&&Date.parse(b.starts_at)<z&&Date.parse(b.busy_until)>a).length;
       if(count)fail(409,"EXISTING_BOOKINGS");
       const v={id:s.seq++,day,start_time:start,end_time:end,reason:clean(b.reason||"Выходной")};
@@ -395,7 +424,9 @@ async function execute(req){
         const entries=Object.fromEntries(studioFormatter.formatToParts(new Date(appointment.starts_at)).map(x=>[x.type,x.value]));
         const localDay=entries.year+"-"+entries.month+"-"+entries.day;
         if((new Date(localDay+"T12:00:00Z").getUTCDay()+6)%7!==b.weekday)continue;
-        const start=utc(localDay,b.start).getTime(),end=utc(localDay,b.end).getTime();
+        const begin=utc(localDay,b.start),finish=utc(localDay,b.end);
+        if(!begin||!finish)fail(409,"EXISTING_BOOKINGS");
+        const start=begin.getTime(),end=finish.getTime();
         if(!b.active||Date.parse(appointment.starts_at)<start||Date.parse(appointment.busy_until)>end)fail(409,"EXISTING_BOOKINGS");
       }
       const item=s.schedule.find(x=>x.weekday===b.weekday);
@@ -419,7 +450,7 @@ async function execute(req){
       if(!bundle||bundle.minutes>600)fail(400,"INVALID_SERVICES");
       if(!slots(s,date,bundle.ids).includes(time))fail(409,"TIME_NOT_AVAILABLE");
       const x={id:randomUUID(),tenant:"default",telegram_id:null,name,
-        service_id:bundle.ids[0],service_ids:bundle.ids,service_name:bundle.name,
+        service_id:bundle.ids[0],service_ids:bundle.ids,service_minutes:bundle.minutes,service_name:bundle.name,
         price:bundle.price,...timeRange(bundle,date,time),status:"confirmed",created_at:new Date().toISOString()};
       s.bookings.push(x);return x;
     });
