@@ -368,3 +368,40 @@ test("33 original default service catalog stays unchanged for the existing live 
   assert.equal(r.body.services.length,5);
   assert.equal(r.body.services[0].price,1700);
 });
+
+test("34 rescheduling retains original duration and busy_until after master changes service",async()=>{
+  const h=createHarness();await named(h,ids.a);
+  const first=h.openDay({min:4,max:12}),second=h.openDay({min:13,max:30});
+  const time=(await free(h,first))[0];
+  const booked=await bookTwo(h,ids.a,first,time);
+  assert.equal(booked.status,200);
+  const original=h.readStore().bookings.find(x=>x.id===booked.body.id);
+  assert.equal((Date.parse(original.busy_until)-Date.parse(original.starts_at))/60000,210);
+  const edited=await h.post("/api/service",{id:1,title:"Классическое наращивание",minutes:60,price:2900},ids.master);
+  assert.equal(edited.status,200);
+  const available=(await free(h,second))[0];
+  const moved=await h.post("/api/reschedule",{id:booked.body.id,date:second,time:available},ids.a);
+  assert.equal(moved.status,200,JSON.stringify(moved.body));
+  const record=h.readStore().bookings.find(x=>x.id===booked.body.id);
+  assert.equal((Date.parse(record.busy_until)-Date.parse(record.starts_at))/60000,210,"original duration +15 min buffer must be preserved");
+  assert.equal(record.price,3300,"original agreed price must be preserved");
+  assert.equal(record.service_name,original.service_name,"original booked service names must be preserved");
+});
+test("35 rescheduling still works when previously booked service becomes inactive",async()=>{
+  const h=createHarness();await named(h,ids.a);
+  const first=h.openDay({min:4,max:12}),second=h.openDay({min:13,max:30});
+  const time=(await free(h,first))[0];
+  const booked=await bookTwo(h,ids.a,first,time);
+  assert.equal(booked.status,200);
+  h.overrideStore(s=>{s.services.find(x=>x.id===4).active=false;});
+  const moved=await h.post("/api/reschedule",{id:booked.body.id,date:second,time:"10:00"},ids.a);
+  assert.equal(moved.status,200,JSON.stringify(moved.body));
+  assert.equal((Date.parse(h.readStore().bookings[0].busy_until)-Date.parse(h.readStore().bookings[0].starts_at))/60000,210);
+});
+test("36 DST spring missing hour and autumn duplicate hour must not map to a different clock time",()=>{
+  const h=createHarness({timezone:"Europe/Amsterdam"});
+  assert.equal(vm.runInContext('utc("2027-03-28","02:30")',h.sandbox),null,"nonexistent local time must be rejected");
+  assert.equal(vm.runInContext('utc("2027-10-31","02:30")',h.sandbox),null,"ambiguous local time must be rejected");
+  assert.equal(vm.runInContext('utc("2027-03-28","03:30").toISOString()',h.sandbox),"2027-03-28T01:30:00.000Z");
+  assert.equal(vm.runInContext('utc("2027-10-31","03:30").toISOString()',h.sandbox),"2027-10-31T02:30:00.000Z");
+});
