@@ -227,14 +227,35 @@ if(state.page==="booking"){
       !state.public.ready?'<div class="hint" style="margin-top:10px">Онлайн-запись включится после подключения бота и мастера.</div>':'')+
     '</div>';
 }
-if(state.page==="visits")return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':state.bookings.length?state.bookings.map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>');
+if(state.page==="visits")return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':state.bookings.length?state.bookings.slice().sort((a,b)=>(a.status==="confirmed"?0:1)-(b.status==="confirmed"?0:1)||Date.parse(a.starts_at)-Date.parse(b.starts_at)).map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>');
 return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>';}
+function bookingStatusLabel(status){
+  return ({confirmed:"Подтверждена",completed:"Завершена",cancelled_by_client:"Отменена вами",cancelled_by_master:"Отменена мастером",no_show:"Не состоялась"})[status]||"Статус уточняется";
+}
+function rebookFromHistory(id){
+  const b=state.bookings.find(x=>String(x.id)===String(id));
+  if(!b)return fail("Запись не найдена. Обновите список.");
+  const ids=(b.service_ids||[b.service_id]).map(Number).filter(id=>(state.public?.services||[]).some(s=>s.id===id));
+  if(!ids.length){route("booking");return fail("Услуга изменилась. Выберите актуальную услугу.");}
+  state.serviceIds=ids;state.date="";state.time="";state.slots=[];state.slotsError="";
+  state.calendarMonth=studioToday().slice(0,7)+"-01";
+  route("booking");
+}
 function bookingCard(b){
-  const date=new Date(b.starts_at).toLocaleString("ru-RU",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZone:state.public?.timezone||"Europe/Moscow"});
-  const quote=String.fromCharCode(39);
-  const actions=b.status==="confirmed"?'<div class="flex"><button class="btn line" onclick="rescheduleForm('+quote+b.id+quote+','+JSON.stringify(b.service_ids||[b.service_id])+')">Перенести</button><button class="btn line" onclick="cancelBooking('+quote+b.id+quote+')">Отменить</button></div>':"";
+  const timezone=state.public?.timezone||"Europe/Moscow";
+  const date=new Date(b.starts_at).toLocaleString("ru-RU",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZone:timezone});
+  const id=JSON.stringify(String(b.id));
+  const isActive=b.status==="confirmed";
+  const isPast=Number.isFinite(Date.parse(b.starts_at))&&Date.parse(b.starts_at)<Date.now();
+  const isLocked=!isMaster()&&Date.parse(b.starts_at)-Date.now()<12*3600000;
+  const statusLabel=bookingStatusLabel(b.status);
+  const badge='<span class="pill" style="background:'+(isActive?"#e6f6e8":"#f2e6eb")+';color:'+(isActive?"#357545":"#7a5668")+'">'+esc(statusLabel)+'</span>';
+  const activeActions=isActive&&!isPast?
+    (isLocked?'<div class="sub" style="margin-top:11px">До визита осталось менее 12 часов. Для изменения записи свяжитесь с мастером.</div>':
+    '<div class="flex" style="margin-top:12px;gap:8px;flex-wrap:wrap"><button class="btn line" onclick="rescheduleForm('+id+','+JSON.stringify(b.service_ids||[b.service_id])+')">📅 Перенести</button><button class="btn line" onclick="cancelBooking('+id+')">Отменить запись</button></div>'):"";
+  const rebookAction=(!isActive||isPast)&&!isMaster()?'<button class="btn line full" style="margin-top:12px" onclick="rebookFromHistory('+id+')">Записаться снова →</button>':"";
   const customer=isMaster()?'<div class="sub" style="margin:7px 0">Клиент: '+esc(b.name||"Имя не указано")+'</div>':"";
-  return '<div class="card" style="margin-bottom:10px"><div class="row"><b>'+esc(b.service_name)+'</b><span class="pill">'+esc(b.status)+'</span></div>'+customer+'<div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b>'+actions+'</div></div>';
+  return '<div class="card" style="margin-bottom:10px"><div class="row" style="gap:9px;align-items:flex-start"><b style="flex:1;min-width:0">'+esc(b.service_name||"Услуга")+'</b>'+badge+'</div>'+customer+'<div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b></div>'+activeActions+rebookAction+'</div>';
 }
 function masterView(){if(state.loading)return '<div class="empty">Загружаем кабинет мастера…</div>';if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid"><div class="card"><div class="sub">Активных записей</div><div class="value">'+recent.length+'</div></div><div class="card"><div class="sub">Всего клиентов</div><div class="value">'+(state.master&&state.master.clients||[]).length+'</div></div></div><div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
 if(state.page==="calendar")return '<div class="section"><h2>Календарь мастера</h2></div><div class="card"><h3>Добавить запись вручную</h3><input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/><select id="manualService" class="field">'+state.public.services.map(s=>'<option value="'+s.id+'">'+esc(s.title)+'</option>').join("")+'</select><div class="grid"><input id="manualDate" type="date" class="field"/><input id="manualTime" type="time" class="field"/></div><button class="btn full" onclick="createManual()">Добавить запись</button></div><div class="card" style="margin-top:12px"><h3>Закрыть день или часы</h3><input id="blockDay" type="date" class="field"/><div class="grid"><input id="from" type="time" class="field" placeholder="От"/><input id="to" type="time" class="field" placeholder="До"/></div><input id="blockReason" class="field" placeholder="Причина (необязательно)"/><p class="cap">Оставьте время пустым, чтобы закрыть весь день.</p><button class="btn full" onclick="blockDay()">Заблокировать</button></div><div class="section"><h2>Блокировки</h2></div>'+(state.master&&state.master.blocks||[]).map(b=>'<div class="item row"><div><b>'+esc(b.day.slice(0,10))+'</b><div class="sub">'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</div></div><button class="btn line" onclick="unblock('+b.id+')">Открыть</button></div>').join("")+'<div class="section"><h2>Записи</h2></div>'+(state.master&&state.master.bookings||[]).map(b=>bookingCard(b)+(b.status==="confirmed"&&Date.parse(b.starts_at)<=Date.now()?'<div class="flex" style="margin-bottom:15px"><button class="chip" onclick="setStatus(\''+b.id+'\',\'completed\')">Выполнено</button><button class="chip" onclick="setStatus(\''+b.id+'\',\'no_show\')">Неявка</button></div>':"")).join("");
