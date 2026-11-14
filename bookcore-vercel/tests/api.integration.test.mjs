@@ -405,3 +405,35 @@ test("36 DST spring missing hour and autumn duplicate hour must not map to a dif
   assert.equal(vm.runInContext('utc("2027-03-28","03:30").toISOString()',h.sandbox),"2027-03-28T01:30:00.000Z");
   assert.equal(vm.runInContext('utc("2027-10-31","03:30").toISOString()',h.sandbox),"2027-10-31T02:30:00.000Z");
 });
+
+test("37 DST crossing appointment is not offered when the required local end time is nonexistent",async()=>{
+  const h=createHarness({timezone:"Europe/Amsterdam",fixedNow:"2027-03-25T12:00:00Z"});
+  const init=await h.request("/api/public");
+  assert.equal(init.status,200);
+  h.overrideStore(s=>{
+    const sunday=s.schedule.find(x=>x.weekday===6);
+    sunday.active=true;
+    sunday.start_time="01:00";
+    sunday.end_time="04:00";
+  });
+  const response=await h.request("/api/slots?date=2027-03-28&services=5");
+  assert.equal(response.status,200,JSON.stringify(response.body));
+  assert.ok(response.body.slots.includes("01:00"),"01:00 to 01:45 is a valid local interval");
+  assert.ok(!response.body.slots.includes("01:15"),"01:15 to 02:00 would cross the DST gap");
+  assert.ok(!response.body.slots.includes("01:30"),"01:30 to 02:15 would cross the DST gap");
+  assert.ok(response.body.slots.includes("03:00"),"03:00 to 03:45 is valid after the jump");
+});
+test("38 legacy bookings without service_minutes keep their recorded duration on reschedule",async()=>{
+  const h=createHarness();await named(h,ids.a);
+  const first=h.openDay({min:4,max:12}),second=h.openDay({min:13,max:30});
+  const booked=await bookTwo(h,ids.a,first,(await free(h,first))[0]);
+  assert.equal(booked.status,200);
+  h.overrideStore(s=>{delete s.bookings[0].service_minutes;});
+  const changed=await h.post("/api/service",{id:1,title:"Классическое наращивание",minutes:45,price:2300},ids.master);
+  assert.equal(changed.status,200);
+  const moved=await h.post("/api/reschedule",{id:booked.body.id,date:second,time:"10:00"},ids.a);
+  assert.equal(moved.status,200,JSON.stringify(moved.body));
+  const entry=h.readStore().bookings[0];
+  assert.equal((Date.parse(entry.busy_until)-Date.parse(entry.starts_at))/60000,210);
+  assert.equal(entry.service_minutes,195);
+});
