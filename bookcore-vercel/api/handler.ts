@@ -216,6 +216,10 @@ function slots(s,date,ids,ignoreId=null,fixedMinutes=null){
     const time=fmt(m),local=utc(date,time);
     if(!local)continue;
     const start=local.getTime(),end=start+(bundle.minutes+15)*60000;
+    // A procedure must fit the studio clock interval without crossing a DST jump.
+    // Otherwise a 45-minute service can appear as a booking ending an hour later.
+    const localEnd=utc(date,fmt(m+bundle.minutes+15));
+    if(!localEnd||localEnd.getTime()!==end)continue;
     if(start<now+4*3600000)continue;
     if(m<15*60&&m+bundle.minutes+15>14*60)continue;
     if(s.blocks.some(x=>x.day===date&&x.start_time&&m<minutes(x.end_time)&&m+bundle.minutes+15>minutes(x.start_time)))continue;
