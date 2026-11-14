@@ -95,6 +95,6 @@ export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additi
     throw Error("No open day in test window");
   }
   const readStore=()=>storage===null?null:structuredClone(storage);
-  function overrideStore(fn){const data=readStore();fn(data);storage=data;version++;}
+  function overrideStore(fn){const data=readStore()??vm.runInContext("seed()",sandbox);fn(data);storage=data;version++;}
   return {request,post,signed,today,addDays,openDay,readStore,overrideStore,messages,botSettings,ids,sandbox,handler};
 }
