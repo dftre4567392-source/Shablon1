@@ -230,6 +230,36 @@ function slots(s,date,ids,ignoreId=null,fixedMinutes=null){
   }
   return result;
 }
+// Calendar status uses the same availability rules as bookings.
+function calendarDays(s,month,rawServices){
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||!validDate(month+"-01"))fail(400,"INVALID_MONTH");
+  const selected=resolveServices(s,rawServices);
+  // Before a service is chosen, show availability for the shortest active service.
+  const fallback=s.services.filter(x=>x.active).sort((a,b)=>a.minutes-b.minutes)[0];
+  const ids=selected?.ids||(fallback?[fallback.id]:[]);
+  const first=new Date(month+"-01T12:00:00Z");
+  const count=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();
+  const days={};
+  for(let i=1;i<=count;i++){
+    const day=month+"-"+pad(i);
+    if(!bookableDate(day))continue;
+    const schedule=daySchedule(s,day);
+    const fullBlock=(s.blocks||[]).some(x=>x.day===day&&!x.start_time);
+    if(!schedule?.active||fullBlock){
+      days[day]={status:"off",label:"Мастер не работает",available:0};
+      continue;
+    }
+    const shiftLength=minutes(schedule.end_time)-minutes(schedule.start_time);
+    const partialBlocks=(s.blocks||[]).filter(x=>x.day===day&&x.start_time);
+    const blocked=partialBlocks.reduce((sum,x)=>sum+Math.max(0,Math.min(minutes(x.end_time),minutes(schedule.end_time))-Math.max(minutes(x.start_time),minutes(schedule.start_time))),0);
+    const isShort=shiftLength-blocked<=480;
+    const available=ids.length?slots(s,day,ids).length:0;
+    if(!available)days[day]={status:"busy",label:"Свободного времени нет",available:0};
+    else if(isShort)days[day]={status:"short",label:"Сокращённый день",available};
+    else days[day]={status:"available",label:"Есть свободное время",available};
+  }
+  return {month,days,basis:selected?"selected_service":"shortest_service"};
+}
 const toISO=(date,time)=>utc(date,time)?.toISOString()||null;
 function timeRange(svc,date,time){
   const start=utc(date,time);
@@ -429,6 +459,12 @@ async function execute(req){
     const {state}=await load();
     const bot=await ensureBotSetup();
     return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
+  }
+  if(route==="/api/calendar"&&method==="GET"){
+    const {state}=await load();
+    const month=uri.searchParams.get("month")||"";
+    const services=uri.searchParams.get("services")||"";
+    return respond(calendarDays(state,month,services));
   }
   if(route==="/api/slots"&&method==="GET"){
     const {state}=await load();
