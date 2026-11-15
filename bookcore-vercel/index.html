@@ -27,7 +27,7 @@
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false};
+const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -59,7 +59,7 @@ function humanApiError(error){
 }
 async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json().catch(()=>null);if(x===null)throw new Error("Сервер временно недоступен. Попробуйте ещё раз.");if(!r.ok)throw new Error(humanApiError(x.error));return x;}
 const isMaster=()=>state.me&&state.me.role==="master";
-async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}if(isMaster())state.loading=true;render();if(isMaster())void loadMaster();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
+async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}if(isMaster())state.loading=true;render();if(isMaster())void loadMaster();if(initial&&!isMaster()){void loadTelegramAvatar();void loadNotificationPrefs();}if(state.me&&state.me.needsName)onboard();}
 function route(p){
   state.page=p;
   if(isMaster()&&["calendar","clients","settings","overview"].includes(p)){
@@ -70,6 +70,7 @@ function route(p){
   }
   render();
   if(p==="visits")void loadBookings();
+  if(p==="profile"&&initial)void loadNotificationPrefs();
 }
 function nav(){const n=isMaster()?[["overview","⌂","Обзор"],["calendar","▦","Календарь"],["clients","♧","Клиенты"],["settings","⚙","Настройки"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
 function selectedServices(){
@@ -228,7 +229,40 @@ if(state.page==="booking"){
     '</div>';
 }
 if(state.page==="visits")return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':state.bookings.length?state.bookings.slice().sort((a,b)=>(a.status==="confirmed"?0:1)-(b.status==="confirmed"?0:1)||Date.parse(a.starts_at)-Date.parse(b.starts_at)).map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>');
-return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>';}
+return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>'+
+  '<div class="section"><h2>🔔 Умные уведомления</h2></div>'+offerSettingsView();
+}
+function offerSettingsView(){
+  if(!initial)return '<div class="card"><p class="sub">Чтобы настроить уведомления, откройте BOOKCORE через Telegram.</p></div>';
+  const prefs=state.notificationPrefs;
+  if(!prefs)return '<div class="card"><p class="sub">Загрузка настроек уведомлений…</p></div>';
+  const botName=/^[A-Za-z0-9_]{5,32}$/.test(state.public?.botUsername||"")?state.public.botUsername:"";
+  const botLink=botName?'<a class="btn line full" style="display:block;text-align:center;margin-top:12px" href="https://t.me/'+botName+'?start=notifications">🤖 Открыть бота и нажать Start</a>':"";
+  return '<div class="card">'+
+    '<div class="row" style="align-items:center;gap:10px"><div style="flex:1"><b>Предложения повторной записи</b><div class="sub" style="margin-top:5px">Бот предложит услугу и актуальные свободные часы, когда подойдёт время нового визита.</div></div>'+
+    '<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" aria-label="Включить предложения повторной записи" id="repeatOffersToggle" '+(prefs.repeatOptIn?"checked":"")+' '+(state.notificationSaving?"disabled":"")+' onchange="saveOfferSettings()"/></label></div>'+
+    '<div class="line"></div><label for="repeatCycle" class="sub">Напомнить после последнего визита</label>'+
+    '<select id="repeatCycle" class="field" '+(state.notificationSaving?"disabled":"")+' onchange="saveOfferSettings()">'+
+    [14,21,28,35,45,60].map(d=>'<option value="'+d+'" '+(prefs.repeatCycleDays===d?"selected":"")+'>'+d+' дней</option>').join("")+'</select>'+
+    '<div class="hint">Только после согласия. Не больше одного успешного приглашения на один завершённый визит. Если уже есть будущая запись, напоминание не придёт.</div>'+
+    (!prefs.botStarted?'<div class="sub" style="margin-top:12px">⚠️ Для отправки сообщений откройте чат бота и нажмите Start.</div>'+botLink:
+    '<div class="sub" style="margin-top:12px">✅ Бот активирован для этого аккаунта.</div>')+
+    '<div class="sub" style="margin-top:10px">Отключить предложения можно здесь или командой /offers_off. Служебные подтверждения записей останутся активными.</div></div>';
+}
+async function loadNotificationPrefs(){
+  try{state.notificationPrefs=await api("/api/notifications");if(state.page==="profile")render();}
+  catch(e){console.warn("BOOKCORE_NOTIFICATION_SETTINGS_FAILED",e);if(state.page==="profile")fail("Не удалось загрузить настройки: "+e.message);}
+}
+async function saveOfferSettings(){
+  if(state.notificationSaving)return;
+  const toggle=el("repeatOffersToggle"),cycle=el("repeatCycle");if(!toggle||!cycle)return;
+  const repeatOptIn=toggle.checked,repeatCycleDays=Number(cycle.value);
+  const previous=state.notificationPrefs;
+  state.notificationSaving=true;
+  try{state.notificationPrefs=await api("/api/notifications",{method:"POST",body:JSON.stringify({repeatOptIn,repeatCycleDays})});}
+  catch(e){state.notificationPrefs=previous;fail("Не удалось сохранить настройки: "+e.message);}
+  finally{state.notificationSaving=false;render();}
+}
 function bookingStatusLabel(status){
   return ({confirmed:"Подтверждена",completed:"Завершена",cancelled_by_client:"Отменена вами",cancelled_by_master:"Отменена мастером",no_show:"Не состоялась"})[status]||"Статус уточняется";
 }
