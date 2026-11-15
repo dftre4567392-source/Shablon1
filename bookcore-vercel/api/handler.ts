@@ -501,7 +501,7 @@ async function execute(req){
     const {state}=await load();
     const dayStates=calendarDays(state,month,services);
     const available=date?slots(state,date,services):[];
-    return respond({month,date,services,days:dayStates.days,slots:available,
+    return respond({month,date,services,bookingWindowDays:bookingWindow(state),days:dayStates.days,slots:available,
       serverTime:new Date().toISOString()});
   }
   if(route==="/api/calendar"&&method==="GET"){
@@ -717,7 +717,7 @@ async function execute(req){
   if(route==="/api/master/calendar"&&method==="GET"){
     const month=uri.searchParams.get("month")||"";
     const {state}=await load();
-    const overview=calendarDays(state,month,"");
+    const overview=calendarDays({...state,booking_window_days:45},month,"");
     return respond({days:overview.days,overrides:(state.day_overrides||[]).filter(x=>x.day.startsWith(month)),windowDays:bookingWindow(state)});
   }
   if(route==="/api/master/window"&&method==="POST"){
