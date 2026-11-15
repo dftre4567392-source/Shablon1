@@ -542,7 +542,7 @@ async function execute(req){
       const startInstant=utc(day,start||"00:00"),endInstant=utc(day,end||"23:59");
       if(!startInstant||!endInstant)fail(400,"INVALID_LOCAL_TIME");
       const a=startInstant.getTime(),z=endInstant.getTime();
-      const count=s.bookings.filter(b=>b.status==="confirmed"&&Date.parse(b.starts_at)<z&&Date.parse(b.busy_until)>a).length;
+      const count=s.bookings.filter(b=>(b.status==="confirmed"||(b.status==="cancelled_by_client"&&Date.parse(b.restore_until)>Date.now()))&&Date.parse(b.starts_at)<z&&Date.parse(b.busy_until)>a).length;
       if(count)fail(409,"EXISTING_BOOKINGS");
       const v={id:s.seq++,day,start_time:start,end_time:end,reason:clean(b.reason||"Выходной")};
       s.blocks.push(v);return v;
@@ -560,7 +560,7 @@ async function execute(req){
     await mutate(s=>{
       // Changes must not silently invalidate confirmed future appointments.
       for(const appointment of s.bookings){
-        if(appointment.status!=="confirmed"||Date.parse(appointment.busy_until)<=Date.now())continue;
+        if(!(appointment.status==="confirmed"||(appointment.status==="cancelled_by_client"&&Date.parse(appointment.restore_until)>Date.now()))||Date.parse(appointment.busy_until)<=Date.now())continue;
         const entries=Object.fromEntries(studioFormatter.formatToParts(new Date(appointment.starts_at)).map(x=>[x.type,x.value]));
         const localDay=entries.year+"-"+entries.month+"-"+entries.day;
         if((new Date(localDay+"T12:00:00Z").getUTCDay()+6)%7!==b.weekday)continue;
