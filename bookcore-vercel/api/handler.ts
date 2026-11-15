@@ -717,8 +717,17 @@ async function execute(req){
   if(route==="/api/master/calendar"&&method==="GET"){
     const month=uri.searchParams.get("month")||"";
     const {state}=await load();
-    const overview=calendarDays({...state,booking_window_days:45},month,"");
+    const services=uri.searchParams.get("services")||"";
+    const overview=calendarDays({...state,booking_window_days:45},month,services);
     return respond({days:overview.days,overrides:(state.day_overrides||[]).filter(x=>x.day.startsWith(month)),windowDays:bookingWindow(state)});
+  }
+  if(route==="/api/master/slots"&&method==="GET"){
+    const date=String(uri.searchParams.get("date")||"");
+    const services=String(uri.searchParams.get("services")||"");
+    if(!bookableDate(date,{booking_window_days:45}))fail(400,"DATE_OUT_OF_RANGE");
+    const {state}=await load();
+    if(!resolveServices(state,services))fail(400,"INVALID_SERVICES");
+    return respond({date,slots:slots({...state,booking_window_days:45},date,services)});
   }
   if(route==="/api/master/window"&&method==="POST"){
     const b=await body(req),days=Number(b.days);
@@ -799,7 +808,7 @@ async function execute(req){
     const appointment=await mutate(s=>{
       const bundle=resolveServices(s,b.serviceIds??b.serviceId);
       if(!bundle||bundle.minutes>600)fail(400,"INVALID_SERVICES");
-      if(!slots(s,date,bundle.ids).includes(time))fail(409,"TIME_NOT_AVAILABLE");
+      if(!slots({...s,booking_window_days:45},date,bundle.ids).includes(time))fail(409,"TIME_NOT_AVAILABLE");
       const x={id:randomUUID(),tenant:"default",telegram_id:null,name,
         service_id:bundle.ids[0],service_ids:bundle.ids,service_minutes:bundle.minutes,service_name:bundle.name,
         price:bundle.price,...timeRange(bundle,date,time),status:"confirmed",created_at:new Date().toISOString()};
