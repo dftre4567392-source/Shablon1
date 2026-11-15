@@ -242,11 +242,90 @@ function originalBookingMinutes(b){
   return Number.isInteger(calculated)&&calculated>=15&&calculated<=600?calculated:null;
 }
 async function notify(chat,text,reply_markup){
-  if(!TOKEN||!chat)return;
-  try{await botCall("sendMessage",{chat_id:chat,text,...(reply_markup?{reply_markup}:{})});}catch(e){console.warn("BOOKCORE_NOTIFICATION_FAILED",String(e))}
+  if(!TOKEN||!chat)return false;
+  try{await botCall("sendMessage",{chat_id:chat,text,...(reply_markup?{reply_markup}:{})});return true;}catch(e){console.warn("BOOKCORE_NOTIFICATION_FAILED",String(e));return false;}
 }
 async function notifyMasters(message){await Promise.all([...MASTER_IDS].map(id=>notify(id,message)));}
 function prettyDate(value){return new Date(value).toLocaleString("ru-RU",{timeZone:TZ,dateStyle:"medium",timeStyle:"short"});}
+
+const OFFER_CYCLES=new Set([14,21,28,35,45,60]);
+function offerCycle(u){const value=Number(u?.repeat_cycle_days);return OFFER_CYCLES.has(value)?value:21;}
+function notificationSettings(u){return {repeatOptIn:u?.repeat_opt_in===true,repeatCycleDays:offerCycle(u),botStarted:u?.bot_started===true};}
+function dateOffset(day,delta){const time=Date.parse(day+"T00:00:00Z");return new Date(time+delta*86400000).toISOString().slice(0,10);}
+function studioDayFromInstant(value){
+  const parts=Object.fromEntries(studioFormatter.formatToParts(new Date(value)).map(x=>[x.type,x.value]));
+  return parts.year+"-"+parts.month+"-"+parts.day;
+}
+function eligibleOffer(s,telegramId,now){
+  const u=s.users?.[telegramId];
+  if(!u||u.repeat_opt_in!==true||u.bot_started!==true)return null;
+  const rows=s.bookings.filter(b=>b.telegram_id===telegramId&&b.status==="completed").sort((a,b)=>Date.parse(b.starts_at)-Date.parse(a.starts_at));
+  const latest=rows[0];
+  if(!latest||!Number.isFinite(Date.parse(latest.starts_at)))return null;
+  if(s.bookings.some(b=>b.telegram_id===telegramId&&b.status==="confirmed"&&Date.parse(b.starts_at)>now))return null;
+  const cycle=offerCycle(u),day=studioDayFromInstant(latest.starts_at),due=dateOffset(day,cycle);
+  if(due>todayInStudio())return null;
+  const previous=(s.notification_log||[]).find(x=>x.type==="repeat_offer"&&x.booking_id===latest.id&&x.telegram_id===telegramId);
+  if(previous&&(previous.status==="sent"||previous.status==="sending"||Number(previous.attempts||0)>=2))return null;
+  if(previous&&previous.updated_at&&now-Date.parse(previous.updated_at)<86400000)return null;
+  const ids=(latest.service_ids||[latest.service_id]).map(Number);
+  if(!resolveServices(s,ids))return null;
+  const today=todayInStudio(),options=[];
+  for(let i=1;i<=8;i++){
+    const date=dateOffset(today,i),available=slots(s,date,ids);
+    if(available.length)options.push({date,times:available.slice(0,3)});
+  }
+  if(!options.length)return null;
+  const prior=rows.slice(0,5).map(b=>new Date(studioDayFromInstant(b.starts_at)+"T12:00:00Z").getUTCDay());
+  const frequency=new Map();
+  for(const wd of prior)frequency.set(wd,(frequency.get(wd)||0)+1);
+  const favorite=[...frequency].sort((a,b)=>b[1]-a[1])[0]?.[0];
+  const preferred=options.find(o=>new Date(o.date+"T12:00:00Z").getUTCDay()===favorite);
+  const selected=preferred||options[0];
+  return {telegramId,bookingId:latest.id,serviceName:latest.service_name||"любимую услугу",day:selected.date,times:selected.times,cycle};
+}
+async function runRepeatOffers(){
+  const {state}=await load();
+  const current=Date.now();
+  const ids=Object.keys(state.users||{}).filter(id=>state.users[id]?.repeat_opt_in===true);
+  let sent=0,failed=0,skipped=0;
+  for(const telegramId of ids.slice(0,250)){
+    if(sent+failed>=12)break;
+    const proposal=eligibleOffer(state,telegramId,current);
+    if(!proposal){skipped++;continue;}
+    const claim=await mutate(s=>{
+      s.notification_log||=[];
+      const refreshed=eligibleOffer(s,telegramId,Date.now());
+      if(!refreshed||refreshed.bookingId!==proposal.bookingId)return null;
+      const last=s.notification_log.find(x=>x.type==="repeat_offer"&&x.booking_id===refreshed.bookingId&&x.telegram_id===telegramId);
+      if(last){last.status="sending";last.attempts=Number(last.attempts||0)+1;last.updated_at=new Date().toISOString();}
+      else s.notification_log.push({type:"repeat_offer",telegram_id:telegramId,booking_id:refreshed.bookingId,status:"sending",attempts:1,updated_at:new Date().toISOString()});
+      s.notification_log=s.notification_log.slice(-2500);
+      return refreshed;
+    });
+    if(!claim)continue;
+    const latest=await load();
+    if(latest.state.users?.[telegramId]?.repeat_opt_in!==true)continue;
+    const dateLabel=new Date(claim.day+"T12:00:00Z").toLocaleDateString("ru-RU",{weekday:"long",day:"numeric",month:"long",timeZone:"UTC"});
+    const name=clean(latest.state.users[telegramId]?.client_name||"");
+    const text="🌸 BOOKCORE | Повторная запись\n\n"+(name?"Здравствуйте, "+name+"!\n\n":"")+
+      "Вы были у нас "+claim.cycle+" или более дней назад. Возможно, хотите повторить услугу «"+claim.serviceName+"»?\n\n"+
+      "📅 Свободно на "+dateLabel+": "+claim.times.join(", ")+".\n\n"+
+      "Выберите удобное время — запись будет создана только после вашего подтверждения.\n\n"+
+      "Чтобы отключить такие предложения, отправьте /offers_off.";
+    const webApp=APP_URL?{inline_keyboard:[[{text:"📅 Выбрать время",web_app:{url:APP_URL}}]]}:undefined;
+    const delivered=await notify(telegramId,text,webApp);
+    await mutate(s=>{
+      const log=(s.notification_log||[]).find(x=>x.type==="repeat_offer"&&x.telegram_id===telegramId&&x.booking_id===claim.bookingId);
+      if(log){log.status=delivered?"sent":"failed";log.updated_at=new Date().toISOString();}
+      return true;
+    });
+    delivered?sent++:failed++;
+  }
+  console.info("BOOKCORE_REPEAT_OFFERS",{scanned:Math.min(ids.length,250),sent,failed,skipped});
+  return {scanned:Math.min(ids.length,250),sent,failed,skipped};
+}
+
 async function body(req){try{return await req.json()}catch{return {};}}
 function secureUser(a){return {role:a.master?"master":"client"};}
 function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status, ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
@@ -259,6 +338,11 @@ async function execute(req){
     let storage=false;
     try{await load();storage=true;}catch(e){console.error("BOOKCORE_STORAGE_STATUS",String(e));}
     return respond({ok:storage,storage,telegramConfigured:!!TOKEN,masterConfigured:!!MASTER,provider:"vercel"},storage?200:503);
+  }
+  if(route==="/api/cron/notifications"&&method==="GET"){
+    const secret=process.env.CRON_SECRET||"";
+    if(!secret||req.headers.get("authorization")!=="Bearer "+secret)fail(401,"UNAUTHORIZED");
+    return respond({ok:true,...await runRepeatOffers()});
   }
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
@@ -284,6 +368,7 @@ async function execute(req){
       const greeting=firstName?"Здравствуйте, "+firstName+"!":"Здравствуйте!";
       const replyMarkup=APP_URL?{inline_keyboard:[[{text:"📅 Открыть онлайн-запись",web_app:{url:APP_URL}}]]}:undefined;
       if(command==="/start"||command==="/help"){
+        if(command==="/start"&&message.from?.id)await mutate(s=>{const id=String(message.from.id);s.users[id]||={created_at:new Date().toISOString()};s.users[id].bot_started=true;return true;});
         await notify(message.chat.id,
           "✨ BOOKCORE | Онлайн-запись\n\n"+
           greeting+" Добро пожаловать в "+STUDIO+"! 💗\n\n"+
@@ -294,6 +379,13 @@ async function execute(req){
           "💌 Посмотреть свои записи, перенести или отменить их\n\n"+
           "Нажмите кнопку ниже, чтобы выбрать удобное время. 👇",
           replyMarkup);
+      }else if(command==="/offers_on"||command==="/offers_off"){
+        const active=command==="/offers_on";
+        const id=String(message.from?.id||message.chat.id);
+        await mutate(s=>{s.users[id]||={created_at:new Date().toISOString()};s.users[id].bot_started=true;s.users[id].repeat_opt_in=active;return true;});
+        await notify(id,active?
+          "🌸 Персональные предложения повторной записи включены. Мы напишем, когда подойдёт время следующего визита и появятся подходящие окна. Отключить: /offers_off.":
+          "✅ Предложения повторной записи отключены. Подтверждения действующих записей продолжат приходить. Включить снова: /offers_on.");
       }else if(command==="/id"){
         await notify(message.chat.id,"🪪 Ваш Telegram ID: "+String(message.from?.id||message.chat.id)+"\n\nЭтот номер можно использовать для настройки доступа мастера.");
       }else if(text){
@@ -326,6 +418,21 @@ async function execute(req){
     const {state}=await load();
     const user=state.users[auth.id];
     return respond({...secureUser(auth),clientName:user?.client_name||"",needsName:!auth.master&&!user?.client_name});
+  }
+  if(route==="/api/notifications"&&method==="GET"){
+    const {state}=await load();
+    return respond(notificationSettings(state.users?.[auth.id]));
+  }
+  if(route==="/api/notifications"&&method==="POST"){
+    const b=await body(req);
+    if(typeof b.repeatOptIn!=="boolean"||!OFFER_CYCLES.has(Number(b.repeatCycleDays)))fail(400,"INVALID_NOTIFICATION_SETTINGS");
+    const prefs=await mutate(s=>{
+      s.users[auth.id]||={created_at:new Date().toISOString()};
+      s.users[auth.id].repeat_opt_in=b.repeatOptIn;
+      s.users[auth.id].repeat_cycle_days=Number(b.repeatCycleDays);
+      return notificationSettings(s.users[auth.id]);
+    });
+    return respond({ok:true,...prefs});
   }
   if(route==="/api/name"&&method==="POST"){
     const b=await body(req),name=clean(b.name);
