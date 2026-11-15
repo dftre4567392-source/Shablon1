@@ -508,7 +508,8 @@ async function loadMasterCalendar(){
  if(!isMaster()||state.page!=="calendar")return;
  const month=state.masterMonth||studioToday().slice(0,7);
  const request=++state.masterCalendarRequest;
- try{const data=await api("/api/master/calendar?month="+encodeURIComponent(month));
+ try{const service=Number(state.masterServiceId||state.public?.services?.[0]?.id||0);
+ const data=await api("/api/master/calendar?month="+encodeURIComponent(month)+"&services="+encodeURIComponent(service||""));
    if(request!==state.masterCalendarRequest||state.page!=="calendar")return;
    state.masterCalendar={month,days:data.days||{},overrides:data.overrides||[]};
    render();
@@ -519,7 +520,7 @@ async function loadMasterSlots(){
  const date=state.masterDate||studioToday(),service=Number(state.masterServiceId||state.public?.services?.[0]?.id);
  state.masterTime="";state.masterSlots=[];
  if(!service)return;
- try{const r=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+service);
+ try{const r=await api("/api/master/slots?date="+encodeURIComponent(date)+"&services="+service);
    if(state.page!=="calendar"||date!==state.masterDate||service!==Number(state.masterServiceId||state.public?.services?.[0]?.id))return;
    state.masterSlots=r.slots||[];
    const holder=el("masterTimeChoices");if(holder)holder.innerHTML=masterTimeOptions();
@@ -529,7 +530,7 @@ function chooseMasterTime(time){if(!state.masterSlots.includes(time))return;stat
  const field=el("manualTime");if(field)field.value=time;
  const holder=el("masterTimeChoices");if(holder)holder.innerHTML=masterTimeOptions();
 }
-function changeMasterService(value){state.masterServiceId=Number(value);void loadMasterSlots();}
+function changeMasterService(value){state.masterServiceId=Number(value);void loadMasterSlots();void loadMasterCalendar();}
 function selectMasterDay(day){state.masterDate=day;state.masterTime="";state.masterSlots=[];render();void loadMasterSlots();}
 function shiftMasterMonth(delta){
  const current=new Date((state.masterMonth||studioToday().slice(0,7))+"-01T12:00:00Z");
