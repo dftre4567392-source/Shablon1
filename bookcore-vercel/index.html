@@ -159,18 +159,24 @@ function changeMonth(delta){
   void loadCalendarInfo();
 }
 
-async function loadCalendarInfo(){
+async function loadCalendarInfo({quiet=false}={}){
   if(isMaster()||state.page!=="booking"&&!rescheduling)return;
   const month=visibleMonth().slice(0,7);
   const ids=rescheduling?rescheduling.serviceIds:state.serviceIds;
   const key=month+"|"+ids.join(",");
   const request=++state.calendarRequest;
-  state.calendarInfo=null;
+  if(!quiet)state.calendarInfo=null;
   try{
     const result=await api("/api/calendar?month="+encodeURIComponent(month)+"&services="+encodeURIComponent(ids.join(",")));
     if(request!==state.calendarRequest)return;
-    state.calendarInfo={key,days:result.days||{}};
-    if(rescheduling)renderMoveCalendar();else if(state.page==="booking")render();
+    const days=result.days||{};
+    const old=state.calendarInfo;
+    const changed=!old||old.key!==key||JSON.stringify(old.days)!==JSON.stringify(days);
+    state.calendarInfo={key,days};
+    if(changed){
+      if(rescheduling)renderMoveCalendar();
+      else if(state.page==="booking")render();
+    }
   }catch(error){
     if(request===state.calendarRequest)console.warn("BOOKCORE_CALENDAR_STATUS_FAILED",error);
   }
@@ -436,7 +442,7 @@ async function book(){
     state.time="";state.slots=[];state.date="";
     fail("Вы успешно записаны!");
     route("visits");
-  }catch(error){fail("Не удалось записаться: "+error.message);if(state.date)void loadSlots();}
+  }catch(error){fail("Не удалось записаться: "+error.message);if(state.date){state.availabilityAlert="Проверяем актуальные свободные часы — выбранное время мог занять другой клиент.";void loadSlots();void loadCalendarInfo({quiet:true});}}
   finally{state.bookingPending=false;render();}
 }
 async function loadWaitlist(){
