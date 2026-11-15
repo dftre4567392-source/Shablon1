@@ -18,12 +18,26 @@ export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additi
   const messages=[],botSettings=[];
   class BlobPreconditionFailedError extends Error {}
   const etag=()=>'"stable-head-etag-'+version+'"';
+  const photoAssets=new Map();
   const head=async()=>storage===null?null:{etag:etag()};
-  const get=async()=>storage===null?null:{
-    statusCode:200,stream:new Response(JSON.stringify(storage)).body,
-    blob:{etag:'"different-get-response-etag-'+version+'"'}
+  const get=async(path)=>{
+    if(typeof path==="string"&&path.startsWith("https://bookcore-gallery.private.blob.vercel-storage.com/")){
+      const item=photoAssets.get(path);
+      return item?{statusCode:200,stream:new Response(item.bytes).body,
+        blob:{etag:item.etag,contentType:item.contentType}}:null;
+    }
+    return storage===null?null:{
+      statusCode:200,stream:new Response(JSON.stringify(storage)).body,
+      blob:{etag:'"different-get-response-etag-'+version+'"'}
+    };
   };
-  const put=async(path,content,{ifMatch,allowOverwrite}={})=>{
+  const put=async(path,content,{ifMatch,allowOverwrite,access,contentType}={})=>{
+    if(typeof path==="string"&&path.startsWith("bookcore/portfolio/")){
+      if(access!=="private")throw Error("Test photo must use private storage");
+      const url="https://bookcore-gallery.private.blob.vercel-storage.com/"+path;
+      photoAssets.set(url,{bytes:Buffer.from(content),contentType,etag:'"photo-'+photoAssets.size+'"'});
+      return {url,pathname:path};
+    }
     if(conflictBudget>0){conflictBudget--;throw new BlobPreconditionFailedError("Injected conflict");}
     if(storage===null){
       if(allowOverwrite||ifMatch)throw new BlobPreconditionFailedError("Unexpected existing object");
@@ -96,5 +110,5 @@ export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additi
   }
   const readStore=()=>storage===null?null:structuredClone(storage);
   function overrideStore(fn){const data=readStore()??vm.runInContext("seed()",sandbox);fn(data);storage=data;version++;}
-  return {request,post,signed,today,addDays,openDay,readStore,overrideStore,messages,botSettings,ids,sandbox,handler};
+  return {request,post,signed,today,addDays,openDay,readStore,overrideStore,messages,botSettings,photoAssets,ids,sandbox,handler};
 }
