@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
+import { createHmac, createHash, timingSafeEqual, randomUUID } from "node:crypto";
 import { get, head, put, BlobPreconditionFailedError } from "@vercel/blob";
 
 // Isolate customer deployments; the default continues reading the existing live store.
@@ -178,7 +178,7 @@ function isManagedPrivatePhoto(raw){
 }
 function displayPhotoUrl(source,serviceId,index){
   return isManagedPrivatePhoto(source)?
-    "/api/handler?route=%2Fapi%2Fphoto&service="+encodeURIComponent(serviceId)+"&index="+index:
+    "/api/handler?route=%2Fapi%2Fphoto&service="+encodeURIComponent(serviceId)+"&index="+index+"&v="+createHash("sha256").update(source).digest("hex").slice(0,12):
     source;
 }
 function validatePhotoBytes(buffer,mime){
@@ -554,14 +554,16 @@ async function execute(req){
     const service=state.services.find(x=>x.id===id&&x.active);
     const url=service?.photos?.[index];
     if(!isManagedPrivatePhoto(url))fail(404,"PHOTO_NOT_FOUND");
+    const version=createHash("sha256").update(url).digest("hex").slice(0,12);
+    if(uri.searchParams.get("v")!==version)fail(404,"PHOTO_NOT_FOUND");
     const fetched=await get(url,{access:"private",ifNoneMatch:req.headers.get("if-none-match")||undefined});
     if(!fetched)fail(404,"PHOTO_NOT_FOUND");
-    if(fetched.statusCode===304)return new Response(null,{status:304,headers:{"etag":fetched.blob.etag,"cache-control":"private, no-cache"}});
+    if(fetched.statusCode===304)return new Response(null,{status:304,headers:{"etag":fetched.blob.etag,"cache-control":"public, max-age=300, s-maxage=300"}});
     if(fetched.statusCode!==200||!fetched.stream)fail(404,"PHOTO_NOT_FOUND");
     const type=fetched.blob.contentType;
     if(!["image/jpeg","image/png","image/webp"].includes(type))fail(415,"INVALID_IMAGE_TYPE");
     return new Response(fetched.stream,{headers:{"content-type":type,"etag":fetched.blob.etag,
-      "x-content-type-options":"nosniff","cache-control":"private, no-cache"}});
+      "x-content-type-options":"nosniff","cache-control":"public, max-age=300, s-maxage=300"}});
   }
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
