@@ -55,7 +55,7 @@ export function createHarness({forcedConflicts=0,timezone="Europe/Moscow",additi
       TENANT_TIMEZONE:timezone,TENANT_DISPLAY_NAME:"Тестовая студия",
       MASTER_DISPLAY_NAME:"Тестовый мастер",APP_URL:"https://bookcore-test.invalid"
     }},
-    createHmac:crypto.createHmac,timingSafeEqual:crypto.timingSafeEqual,randomUUID:crypto.randomUUID,
+    createHmac:crypto.createHmac,createHash:crypto.createHash,timingSafeEqual:crypto.timingSafeEqual,randomUUID:crypto.randomUUID,
     get,head,put,BlobPreconditionFailedError,fetch:fakeFetch,
     Request,Response,Headers,URL,URLSearchParams,Blob,AbortSignal,
     TextDecoder,TextEncoder,Buffer,setTimeout,clearTimeout,Date:MockDate,Intl
