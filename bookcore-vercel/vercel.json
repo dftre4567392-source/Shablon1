@@ -10,6 +10,16 @@
     {
       "source": "/health",
       "destination": "/api/handler?route=%2Fhealth"
+    },
+    {
+      "source": "/api/cron/notifications",
+      "destination": "/api/handler?route=%2Fapi%2Fcron%2Fnotifications"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "0 6 * * *"
     }
   ]
 }
