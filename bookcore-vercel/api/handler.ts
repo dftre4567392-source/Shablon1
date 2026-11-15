@@ -255,7 +255,8 @@ function calendarDays(s,month,rawServices){
     const shiftLength=minutes(schedule.end_time)-minutes(schedule.start_time);
     const partialBlocks=(s.blocks||[]).filter(x=>x.day===day&&x.start_time);
     const blocked=partialBlocks.reduce((sum,x)=>sum+Math.max(0,Math.min(minutes(x.end_time),minutes(schedule.end_time))-Math.max(minutes(x.start_time),minutes(schedule.start_time))),0);
-    const isShort=shiftLength-blocked<=480;
+    // A normal one-hour lunch does not turn a full shift into a short day.
+    const isShort=shiftLength<=480||blocked>=120;
     const available=ids.length?slots(s,day,ids).length:0;
     if(!available)days[day]={status:"busy",label:"Свободного времени нет",available:0};
     else if(isShort)days[day]={status:"short",label:"Сокращённый день",available};
