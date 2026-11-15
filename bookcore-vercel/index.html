@@ -713,7 +713,35 @@ async function saveMasterDay(){
    await loadMaster();fail("Рабочее время выбранного дня сохранено.");
  }catch(e){fail("Не удалось сохранить день: "+e.message)}
 }
-function masterView(){if(state.page==="analytics"&&!state.loading)return masterReports();if(state.loading)return '<div class="empty">Загружаем кабинет мастера…</div>';if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid">' +masterMetric("Ждут посещения",recent.length)+masterMetric("Всего клиентов",(state.master?.clients||[]).length)+masterMetric("Записей сегодня",state.master?.analytics?.todayBookings??0)+masterMetric("Постоянных клиентов",state.master?.analytics?.regularClients??0)+masterMetric("В листе ожидания",state.master?.waitlist??0)+masterMetric("Процедур за месяц",state.master?.analytics?.completedThisMonth??0)+'</div><div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
+
+function masterSetupChecklist(){
+  const pub=state.public||{},services=state.master?.services||[],location=state.master?.location||{};
+  const checks=[
+    {ok:!!pub.ready,text:"Telegram-бот подключён"},
+    {ok:!!String(location.address||"").trim(),text:"Адрес и путь до студии указаны",page:"settings"},
+    {ok:services.some(s=>s.active!==false),text:"Есть доступные для записи услуги",page:"settings"},
+    {ok:services.some(s=>(s.photos||[]).length>0),text:"Добавлены фотографии работ",page:"settings"},
+    {ok:services.some(s=>String(s.details||"").trim().length>0),text:"Есть подробное описание процедур",page:"settings"},
+    {ok:(state.master?.schedule||[]).some(d=>d.active),text:"Настроены рабочие дни",page:"calendar"}
+  ];
+  const ready=checks.filter(x=>x.ok).length;
+  return '<div class="section"><h2>Готовность студии</h2></div>'+
+   '<div class="card"><div class="row"><b>'+ready+' из '+checks.length+' пунктов заполнено</b>'+
+   '<span class="pill">'+(ready===checks.length?"Готово":"Настройка")+'</span></div>'+
+   '<div style="background:#f2e6ed;border-radius:10px;height:9px;overflow:hidden;margin:14px 0">'+
+   '<div style="background:#97617c;height:100%;width:'+Math.round(100*ready/checks.length)+'%"></div></div>'+
+   checks.map(c=>'<div class="row" style="padding:9px 0;border-top:1px solid #f2e6ed"><span class="sub">'+
+      (c.ok?"✅ ":"○ ")+esc(c.text)+'</span>'+
+      (!c.ok&&c.page?'<button type="button" class="service-more" onclick="route(\''+c.page+'\')">Настроить</button>':"")+'</div>').join("")+'</div>';
+}
+async function toggleServiceVisibility(id,active){
+ try{
+  await api("/api/master/service/visibility",{method:"POST",body:JSON.stringify({id,active})});
+  state.public=await api("/api/public");await loadMaster();
+  fail(active?"Услуга снова доступна клиентам.":"Услуга скрыта из записи. Старые посещения сохранены.");
+ }catch(e){fail("Не удалось изменить доступность: "+e.message);}
+}
+function masterView(){if(state.page==="analytics"&&!state.loading)return masterReports();if(state.loading)return '<div class="empty">Загружаем кабинет мастера…</div>';if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid">' +masterMetric("Ждут посещения",recent.length)+masterMetric("Всего клиентов",(state.master?.clients||[]).length)+masterMetric("Записей сегодня",state.master?.analytics?.todayBookings??0)+masterMetric("Постоянных клиентов",state.master?.analytics?.regularClients??0)+masterMetric("В листе ожидания",state.master?.waitlist??0)+masterMetric("Процедур за месяц",state.master?.analytics?.completedThisMonth??0)+'</div>'+masterSetupChecklist()+'<div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
 if(state.page==="calendar")return masterCalendarView();
 if(state.page==="clients"){
   const users=state.master&&state.master.clients||[];
@@ -750,7 +778,10 @@ return '<div class="section"><h2>Услуги и настройки</h2></div>'+
   '<div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" max="600" value="120" placeholder="Минут"/>'+
   '<input id="newServicePrice" class="field" type="number" min="0" max="1000000" value="1700" placeholder="Цена ₽"/></div>'+
   '<button class="btn full" onclick="createService()">Добавить услугу</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить существующие услуги</h2></div>'+
- (state.master?.services||[]).map(x=>'<div class="card" style="margin-bottom:12px"><b>'+esc(x.title)+'</b>'+
+ (state.master?.services||[]).map(x=>'<div class="card" style="margin-bottom:12px"><div class="row"><b>'+esc(x.title)+'</b>'+
+ '<span class="pill">'+(x.active===false?"Скрыта":"Доступна")+'</span></div>'+
+ '<button type="button" class="btn line full" style="margin:9px 0" onclick="toggleServiceVisibility('+x.id+','+(x.active===false?"true":"false")+')">'+
+ (x.active===false?"Показывать клиентам":"Скрыть от новых записей")+'</button>'+
  '<label class="cap">Название</label><input id="editTitle'+x.id+'" class="field" value="'+esc(x.title)+'"/>'+
  '<label class="cap">Краткое описание</label><input id="editDesc'+x.id+'" class="field" value="'+esc(x.description||"")+'" maxlength="150"/>'+
  '<label class="cap">Подробное описание: что входит, подготовка, результат</label><textarea id="editDetails'+x.id+'" rows="4" maxlength="2500" class="field">'+esc(x.details||"")+'</textarea>'+
