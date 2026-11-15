@@ -67,11 +67,12 @@ function blockableDate(day){
   const target=Date.parse(day+"T00:00:00Z");
   return target>=today&&target<=today+365*86400000;
 }
-function bookableDate(date){
+function bookingWindow(s){return [7,14,30,45].includes(Number(s?.booking_window_days))?Number(s.booking_window_days):30;}
+function bookableDate(date,s=null){
   if(!validDate(date))return false;
   const today=Date.parse(todayInStudio()+"T00:00:00Z");
   const d=Date.parse(date+"T00:00:00Z");
-  return d>=today&&d<=today+45*86400000;
+  return d>=today&&d<=today+(s?bookingWindow(s):45)*86400000;
 }
 function resolveServices(s,raw){
   const values=Array.isArray(raw)?raw:typeof raw==="number"?[raw]:typeof raw==="string"?raw.split(","):[];
@@ -138,7 +139,7 @@ function seed(){return {
  users:{},
  services:bootstrapServices(),
  schedule:[0,1,2,3,4,5,6].map(weekday=>({weekday,start_time:"10:00",end_time:"19:00",active:weekday>=1&&weekday<=5})),
- blocks:[],bookings:[],seq:1
+ blocks:[],day_overrides:[],booking_window_days:30,bookings:[],seq:1
 };}
 async function getMetadata(){
   try{return await head(PATH);}
@@ -200,10 +201,12 @@ function identity(req){
 }
 function daySchedule(s,date){
   const day=(new Date(date+"T12:00:00Z").getUTCDay()+6)%7;
-  return s.schedule.find(x=>x.weekday===day);
+  const normal=s.schedule.find(x=>x.weekday===day);
+  const custom=(s.day_overrides||[]).find(x=>x.day===date);
+  return custom?{weekday:day,start_time:custom.start_time,end_time:custom.end_time,active:custom.active}:normal;
 }
 function slots(s,date,ids,ignoreId=null,fixedMinutes=null){
-  if(!bookableDate(date))return [];
+  if(!bookableDate(date,s))return [];
   // Existing appointments reserve their original duration, even if catalog items change.
   const bundle=fixedMinutes===null?resolveServices(s,ids):{minutes:fixedMinutes};
   if(!bundle||!Number.isInteger(bundle.minutes)||bundle.minutes<15||bundle.minutes>600)return [];
@@ -242,7 +245,7 @@ function calendarDays(s,month,rawServices){
   const days={};
   for(let i=1;i<=count;i++){
     const day=month+"-"+pad(i);
-    if(!bookableDate(day))continue;
+    if(!bookableDate(day,s))continue;
     const schedule=daySchedule(s,day);
     const fullBlock=(s.blocks||[]).some(x=>x.day===day&&!x.start_time);
     if(!schedule?.active||fullBlock){
@@ -465,7 +468,7 @@ function masterAnalytics(s){
 }
 async function body(req){try{return await req.json()}catch{return {};}}
 function secureUser(a){return {role:a.master?"master":"client",telegramId:a.id};}
-function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status,...(b.restore_until&&b.status==="cancelled_by_client"?{restore_until:b.restore_until}:{}), ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
+function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status,...(b.cancellation_reason?{cancellation_reason:b.cancellation_reason}:{}),...(b.restore_until&&b.status==="cancelled_by_client"?{restore_until:b.restore_until}:{}), ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
 async function execute(req){
   const uri=new URL(req.url);
   const route=uri.searchParams.get("route")||"/health";
@@ -484,7 +487,7 @@ async function execute(req){
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
     const bot=await ensureBotSetup();
-    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
+    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,bookingWindowDays:bookingWindow(state),services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
   }
   // One snapshot for both the calendar and the selected day's slots.
   // Read the Blob once to avoid doubling storage reads for every active client.
@@ -641,6 +644,8 @@ async function execute(req){
   }
   if(route==="/api/cancel"&&method==="POST"){
     const b=await body(req);
+    const reason=clean(b.reason||"");
+    if(auth.master&&(reason.length<8||reason.length>300))fail(400,"CANCELLATION_REASON_REQUIRED");
     const booking=await mutate(s=>{
       const x=s.bookings.find(x=>x.id===b.id);
       if(!x)fail(404,"NOT_FOUND");
@@ -648,12 +653,13 @@ async function execute(req){
       if(!auth.master&&Date.parse(x.starts_at)-Date.now()<12*3600000)fail(409,"TOO_LATE_TO_CANCEL");
       if(x.status!=="confirmed")fail(409,"NOT_ACTIVE");
       x.status=auth.master?"cancelled_by_master":"cancelled_by_client";
+      if(auth.master)x.cancellation_reason=reason;
       // Protect the original slot for exactly five minutes after a client's cancellation.
       x.cancelled_at=new Date().toISOString();
       x.restore_until=auth.master?null:new Date(Date.now()+5*60*1000).toISOString();
       return {...x};
     });
-    if(auth.master)await notify(booking.telegram_id,"Мастер отменил запись: "+prettyDate(booking.starts_at));
+    if(auth.master)await notify(booking.telegram_id,"❌ BOOKCORE | Запись отменена мастером\n"+booking.service_name+"\n"+prettyDate(booking.starts_at)+"\nПричина: "+reason+"\nВы можете выбрать другое свободное время в приложении.");
     else await notifyMasters("Клиент отменил запись: "+booking.name);
     return respond({ok:true});
   }
@@ -705,7 +711,40 @@ async function execute(req){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
       blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active),
-      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state)});
+      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),bookingWindowDays:bookingWindow(state)});
+  }
+
+  if(route==="/api/master/calendar"&&method==="GET"){
+    const month=uri.searchParams.get("month")||"";
+    const {state}=await load();
+    const overview=calendarDays(state,month,"");
+    return respond({days:overview.days,overrides:(state.day_overrides||[]).filter(x=>x.day.startsWith(month)),windowDays:bookingWindow(state)});
+  }
+  if(route==="/api/master/window"&&method==="POST"){
+    const b=await body(req),days=Number(b.days);
+    if(![7,14,30,45].includes(days))fail(400,"INVALID_BOOKING_WINDOW");
+    await mutate(s=>{s.booking_window_days=days;return true;});
+    return respond({ok:true,days});
+  }
+  if(route==="/api/master/day"&&method==="POST"){
+    const b=await body(req),day=String(b.day||""),active=b.active===true,
+      start=String(b.start||"10:00"),end=String(b.end||"19:00");
+    if(!blockableDate(day)||typeof b.active!=="boolean"||
+      !validTime(start)||!validTime(end)||minutes(start)>=minutes(end))fail(400,"INVALID_DAY_SCHEDULE");
+    await mutate(s=>{
+      const startInstant=utc(day,start),endInstant=utc(day,end);
+      if(!startInstant||!endInstant)fail(400,"INVALID_LOCAL_TIME");
+      for(const x of s.bookings){
+        if(!(x.status==="confirmed"||(x.status==="cancelled_by_client"&&Date.parse(x.restore_until)>Date.now())))continue;
+        if(studioDayFromInstant(x.starts_at)!==day)continue;
+        if(!active||Date.parse(x.starts_at)<startInstant.getTime()||Date.parse(x.busy_until)>endInstant.getTime())fail(409,"EXISTING_BOOKINGS");
+      }
+      s.day_overrides||=[];
+      s.day_overrides=s.day_overrides.filter(x=>x.day!==day);
+      s.day_overrides.push({day,active,start_time:start,end_time:end,updated_at:new Date().toISOString()});
+      return true;
+    });
+    return respond({ok:true,day,active});
   }
   if(route==="/api/block"&&method==="POST"){
     const b=await body(req),day=String(b.day||""),start=b.startTime||null,end=b.endTime||null;
@@ -771,15 +810,18 @@ async function execute(req){
   if(route==="/api/status"&&method==="POST"){
     const b=await body(req);
     if(!["completed","no_show","cancelled_by_master"].includes(b.status))fail(400,"INVALID_STATUS");
+    const reason=clean(b.reason||"");
+    if(b.status==="cancelled_by_master"&&(reason.length<8||reason.length>300))fail(400,"CANCELLATION_REASON_REQUIRED");
     const x=await mutate(s=>{
       const item=s.bookings.find(x=>x.id===b.id);
       if(!item)fail(404,"NOT_FOUND");
       if(item.status!=="confirmed")fail(409,"NOT_ACTIVE");
       if(b.status!=="cancelled_by_master"&&Date.parse(item.starts_at)>Date.now())fail(409,"APPOINTMENT_NOT_STARTED");
       item.status=b.status;
+      if(b.status==="cancelled_by_master")item.cancellation_reason=reason;
       return {...item};
     });
-    if(b.status==="cancelled_by_master")await notify(x.telegram_id,"Мастер отменил вашу запись.");
+    if(b.status==="cancelled_by_master")await notify(x.telegram_id,"❌ Мастер отменил вашу запись.\n"+prettyDate(x.starts_at)+"\nПричина: "+reason);
     return respond({ok:true});
   }
   fail(404,"NOT_FOUND");
