@@ -789,7 +789,7 @@ async function execute(req){
   if(route==="/api/master"&&method==="GET"){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
-      blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active).map(s=>({...publicService(s),photoSources:Array.isArray(s.photos)?s.photos:[]})),location:publicLocation(state),
+      blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.map(s=>({...publicService(s),active:s.active!==false,photoSources:Array.isArray(s.photos)?s.photos:[]})),location:publicLocation(state),
       clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),bookingWindowDays:bookingWindow(state)});
   }
 
@@ -887,6 +887,18 @@ async function execute(req){
       access:"private",addRandomSuffix:true,contentType:mime
     });
     return respond({ok:true,url:uploaded.url,size:file.length});
+  }
+  if(route==="/api/master/service/visibility"&&method==="POST"){
+    const b=await body(req),id=Number(b.id);
+    if(!Number.isSafeInteger(id)||id<1||typeof b.active!=="boolean")fail(400,"INVALID_SERVICE");
+    const active=await mutate(s=>{
+      const service=s.services.find(x=>x.id===id);
+      if(!service)fail(404,"SERVICE_NOT_FOUND");
+      if(!b.active&&s.services.filter(x=>x.active!==false&&x.id!==id).length===0)fail(409,"LAST_ACTIVE_SERVICE");
+      service.active=b.active;
+      return service.active;
+    });
+    return respond({ok:true,id,active});
   }
   if(route==="/api/master/location"&&method==="POST"){
     const b=await body(req);
