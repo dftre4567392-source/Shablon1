@@ -221,7 +221,7 @@ function slots(s,date,ids,ignoreId=null,fixedMinutes=null){
     const localEnd=utc(date,fmt(m+bundle.minutes+15));
     if(!localEnd||localEnd.getTime()!==end)continue;
     if(start<now+4*3600000)continue;
-    if(m<15*60&&m+bundle.minutes+15>14*60)continue;
+    // Breaks are configured by the master in s.blocks; do not impose hidden fixed hours.
     if(s.blocks.some(x=>x.day===date&&x.start_time&&m<minutes(x.end_time)&&m+bundle.minutes+15>minutes(x.start_time)))continue;
     if(s.bookings.some(x=>x.id!==ignoreId&&
       (x.status==="confirmed"||(x.status==="cancelled_by_client"&&Date.parse(x.restore_until)>now))&&
