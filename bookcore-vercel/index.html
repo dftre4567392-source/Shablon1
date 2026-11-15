@@ -394,6 +394,7 @@ async function loadAvailability({quiet=false}={}){
     const oldSlots=state.slots;
     const nextSlots=date?response.slots||[]:[];
     const changed=JSON.stringify(nextSlots)!==JSON.stringify(oldSlots);
+    const previousAlert=state.availabilityAlert;
     const taken=!!state.time&&!nextSlots.includes(state.time);
     const previousCalendar=state.calendarInfo;
     const days=response.days||{};
@@ -418,7 +419,7 @@ async function loadAvailability({quiet=false}={}){
       if(quiet&&taken)window.scrollTo(0,position);
     }else{
       // Avoid re-creating the whole page every few seconds on mobile Telegram.
-      if(changed){
+      if(changed||previousAlert!==state.availabilityAlert){
         const list=el("slotList");
         if(list)list.innerHTML=slotsMarkup();
       }
