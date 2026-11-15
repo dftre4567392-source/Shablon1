@@ -675,7 +675,7 @@ async function execute(req){
       const day=parts.year+"-"+parts.month+"-"+parts.day;
       const time=parts.hour+":"+parts.minute;
       const duration=originalBookingMinutes(x);
-      if(!duration||!slots(s,day,x.service_ids||[x.service_id],x.id,duration).includes(time))
+      if(!duration||!slots({...s,booking_window_days:45},day,x.service_ids||[x.service_id],x.id,duration).includes(time))
         fail(409,"TIME_NOT_AVAILABLE");
       x.status="confirmed";
       x.restored_at=new Date().toISOString();
@@ -697,7 +697,7 @@ async function execute(req){
       if(!auth.master&&Date.parse(x.starts_at)-Date.now()<12*3600000)fail(409,"TOO_LATE_TO_RESCHEDULE");
       const originalMinutes=originalBookingMinutes(x);
       if(!originalMinutes||
-         !slots(s,date,x.service_ids||[x.service_id],x.id,originalMinutes).includes(time))
+         !slots(auth.master?{...s,booking_window_days:45}:s,date,x.service_ids||[x.service_id],x.id,originalMinutes).includes(time))
         fail(409,"TIME_NOT_AVAILABLE");
       Object.assign(x,timeRange({minutes:originalMinutes},date,time),{service_minutes:originalMinutes});
       return {...x};
