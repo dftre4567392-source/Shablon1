@@ -328,6 +328,84 @@ async function runRepeatOffers(){
   return {scanned:Math.min(ids.length,250),sent,failed,skipped};
 }
 
+
+function notificationKey(type,id){return type+":"+id;}
+function notificationSent(s,key){return (s.notification_log||[]).some(x=>x.key===key&&(x.status==="sent"||x.status==="sending"));}
+async function sendOnce(key,chat,message,markup){
+  const reserved=await mutate(s=>{
+    s.notification_log||=[];
+    if(notificationSent(s,key))return false;
+    const previous=s.notification_log.find(x=>x.key===key);
+    if(previous&&Number(previous.attempts||0)>=3)return false;
+    if(previous&&Date.now()-Date.parse(previous.updated_at||0)<3600000)return false;
+    if(previous){previous.status="sending";previous.attempts=(previous.attempts||0)+1;previous.updated_at=new Date().toISOString();}
+    else s.notification_log.push({key,type:key.split(":")[0],status:"sending",attempts:1,updated_at:new Date().toISOString()});
+    s.notification_log=s.notification_log.slice(-3500);
+    return true;
+  });
+  if(!reserved)return false;
+  const delivered=await notify(chat,message,markup);
+  await mutate(s=>{const row=(s.notification_log||[]).find(x=>x.key===key);if(row){row.status=delivered?"sent":"failed";row.updated_at=new Date().toISOString();}return true;});
+  return delivered;
+}
+function pendingSoon(b,hours,tolerance=1){
+  if(b.status!=="confirmed"||!b.telegram_id)return false;
+  const remaining=(Date.parse(b.starts_at)-Date.now())/3600000;
+  return remaining>0&&remaining<=hours&&remaining>hours-tolerance;
+}
+async function runOperationalNotifications(){
+  const {state}=await load(),today=todayInStudio(),summary=state.bookings.filter(x=>x.status==="confirmed"&&studioDayFromInstant(x.starts_at)===today);
+  let sent=0,failed=0;
+  // At most one daily summary, even if the scheduler retries.
+  const overview="☀️ BOOKCORE | Расписание на "+today+"\n\n"+(summary.length?
+    summary.slice().sort((a,b)=>a.starts_at.localeCompare(b.starts_at)).map(x=>"• "+prettyDate(x.starts_at)+" — "+x.service_name+" ("+x.name+")").join("\n"):
+    "На сегодня записей нет.")+"\n\nВсего: "+summary.length;
+  for(const id of MASTER_IDS){if(await sendOnce(notificationKey("morning",today+":"+id),id,overview))sent++;else failed++;}
+  for(const appointment of state.bookings.filter(x=>x.status==="confirmed"&&x.telegram_id).slice(-350)){
+    for(const hours of [24,3]){
+      if(!pendingSoon(appointment,hours,1))continue;
+      const key=notificationKey("reminder"+hours,appointment.id+":"+appointment.starts_at);
+      const text="🔔 BOOKCORE | Напоминание за "+hours+" ч.\n\n"+appointment.service_name+"\n📅 "+prettyDate(appointment.starts_at)+"\n\nЕсли планы изменились, откройте свою запись в приложении.";
+      if(await sendOnce(key,appointment.telegram_id,text,APP_URL?{inline_keyboard:[[{text:"📅 Мои записи",web_app:{url:APP_URL}}]]}:undefined))sent++;else failed++;
+    }
+  }
+  return {sent,failed,summaryCount:summary.length};
+}
+function waitlistEntry(s,auth,day,serviceIds){
+  if(!bookableDate(day))fail(400,"INVALID_DATE");
+  const bundle=resolveServices(s,serviceIds);
+  if(!bundle)fail(400,"INVALID_SERVICES");
+  s.waitlist||=[];
+  if(s.waitlist.some(x=>x.telegram_id===auth.id&&x.day===day&&x.status==="active"))fail(409,"ALREADY_WAITLISTED");
+  if((s.waitlist.filter(x=>x.telegram_id===auth.id&&x.status==="active")).length>=5)fail(409,"WAITLIST_LIMIT");
+  const entry={id:randomUUID(),telegram_id:auth.id,day,service_ids:bundle.ids,service_name:bundle.name,status:"active",created_at:new Date().toISOString()};
+  s.waitlist.push(entry);return entry;
+}
+async function runWaitlistAlerts(){
+  const {state}=await load();let sent=0;
+  for(const row of (state.waitlist||[]).filter(x=>x.status==="active").slice(0,100)){
+    if(!bookableDate(row.day))continue;
+    const times=slots(state,row.day,row.service_ids);
+    if(!times.length)continue;
+    const key=notificationKey("waitlist",row.id+":"+times.slice(0,3).join("-"));
+    const msg="✨ BOOKCORE | Освободилось время\n\n"+row.service_name+"\n📅 "+row.day+"\nСвободные часы: "+times.slice(0,3).join(", ")+".\n\nПерейдите в приложение, чтобы подтвердить запись. Время не резервируется.";
+    if(await sendOnce(key,row.telegram_id,msg,APP_URL?{inline_keyboard:[[{text:"Выбрать время",web_app:{url:APP_URL}}]]}:undefined))sent++;
+  }
+  return {sent};
+}
+function crmStats(state){
+  return Object.entries(state.users||{}).map(([telegram_id,user])=>{
+    const appointments=state.bookings.filter(x=>x.telegram_id===telegram_id);
+    const completed=appointments.filter(x=>x.status==="completed").sort((a,b)=>b.starts_at.localeCompare(a.starts_at));
+    const counts=new Map();
+    for(const x of completed)counts.set(x.service_name,(counts.get(x.service_name)||0)+1);
+    const favorite=[...counts].sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+    return {telegram_id,client_name:user.client_name||"Без имени",visits:completed.length,
+      lastVisit:completed[0]?.starts_at||null,favoriteService:favorite,returning:completed.length>=3,
+      upcoming:appointments.filter(x=>x.status==="confirmed"&&Date.parse(x.starts_at)>Date.now()).length};
+  });
+}
+
 async function body(req){try{return await req.json()}catch{return {};}}
 function secureUser(a){return {role:a.master?"master":"client"};}
 function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status,...(b.restore_until&&b.status==="cancelled_by_client"?{restore_until:b.restore_until}:{}), ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
@@ -344,7 +422,7 @@ async function execute(req){
   if(route==="/api/cron/notifications"&&method==="GET"){
     const secret=process.env.CRON_SECRET||"";
     if(!secret||req.headers.get("authorization")!=="Bearer "+secret)fail(401,"UNAUTHORIZED");
-    return respond({ok:true,...await runRepeatOffers()});
+    const operational=await runOperationalNotifications();const waitlist=await runWaitlistAlerts();const repeat=await runRepeatOffers();return respond({ok:true,operational,waitlist,repeat});
   }
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
@@ -447,6 +525,20 @@ async function execute(req){
     const rows=state.bookings.filter(b=>auth.master||b.telegram_id===auth.id).sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,auth.master?250:60);
     return respond({bookings:rows.map(listBooking)});
   }
+  if(route==="/api/waitlist"&&method==="GET"){
+    const {state}=await load();
+    return respond({entries:(state.waitlist||[]).filter(x=>x.telegram_id===auth.id&&x.status==="active")});
+  }
+  if(route==="/api/waitlist"&&method==="POST"){
+    const b=await body(req);
+    const entry=await mutate(s=>waitlistEntry(s,auth,String(b.date||""),b.serviceIds));
+    return respond({ok:true,entry});
+  }
+  if(route==="/api/waitlist/remove"&&method==="POST"){
+    const b=await body(req);
+    await mutate(s=>{const x=(s.waitlist||[]).find(x=>x.id===b.id&&x.telegram_id===auth.id);if(!x)fail(404,"NOT_FOUND");x.status="removed";return true;});
+    return respond({ok:true});
+  }
   if(route==="/api/book"&&method==="POST"){
     const b=await body(req),date=String(b.date||""),time=String(b.time||"");
     if(!bookableDate(date)||!validTime(time))fail(400,"INVALID_DATE_TIME");
@@ -533,7 +625,7 @@ async function execute(req){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
       blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active),
-      clients:Object.entries(state.users).map(([telegram_id,u])=>({telegram_id,client_name:u.client_name,created_at:u.created_at}))});
+      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length});
   }
   if(route==="/api/block"&&method==="POST"){
     const b=await body(req),day=String(b.day||""),start=b.startTime||null,end=b.endTime||null;
