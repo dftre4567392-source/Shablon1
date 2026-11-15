@@ -37,6 +37,26 @@
 .legend-dot.off{background:#c8bcc8}.legend-dot.short{background:#efc66d}.legend-dot.busy{background:#de96ae}.legend-dot.available{background:#9fd0ac}
 .cal-day .cal-symbol{font-size:9px;position:absolute;right:3px;bottom:1px;line-height:1}
 .cal-day{position:relative}
+
+/* Studio address and editorial service cards */
+.service{align-items:flex-start}
+.service-media{width:92px;height:96px;flex-shrink:0;object-fit:cover;border-radius:13px;background:#f4e9ef;border:1px solid #eee1e8}
+.service-copy{flex:1;min-width:0}
+.service-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:72px}
+.service-more{border:1px solid #dfc7d4;background:#fff;color:#6b435a;border-radius:10px;padding:7px 9px;font-size:11px;font-weight:700;cursor:pointer}
+.photo-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.photo-gallery img{aspect-ratio:4/3;object-fit:cover;width:100%;border-radius:14px;background:#f5edf2}
+.photo-gallery img:first-child:nth-last-child(odd){grid-column:span 2;max-height:250px}
+.portfolio-strip{display:flex;overflow-x:auto;gap:11px;padding-bottom:10px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+.portfolio-card{min-width:165px;max-width:195px;flex:0 0 46%;border-radius:16px;overflow:hidden;background:#fff;border:1px solid #ecdce5;text-align:left;padding:0;cursor:pointer;scroll-snap-align:start;color:#483545}
+.portfolio-card img{height:145px;object-fit:cover;width:100%}
+.portfolio-card b{display:block;padding:10px 11px;font-size:12px;line-height:1.35}
+.studio-map{width:100%;height:235px;border:0;border-radius:16px;background:#f1e7ed;margin:12px 0}
+.studio-address{font-size:15px;font-weight:750;line-height:1.5;overflow-wrap:anywhere}
+.studio-map-actions{display:flex;gap:8px;flex-wrap:wrap}
+.studio-map-actions a{flex:1;text-decoration:none;text-align:center;min-width:130px}
+.location-note{font-size:12px;color:#806d7b}
+@media(max-width:390px){.service-media{width:76px;height:85px}.service{gap:8px}.service-right{min-width:64px}.service-more{font-size:10px;padding:6px}.studio-map{height:205px}}
 </style></head><body><main class="wrap"><div class="top"><div><div class="logo">✦ BOOKCORE</div><div class="tiny">BEAUTY APPOINTMENTS</div></div><div class="circle">✿</div></div><div id="main"><div class="empty">Загружаем студию…</div></div></main><nav id="dock" class="dock"></nav><div id="modalRoot"></div><script>
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
@@ -111,16 +131,87 @@ function selectionTotal(){
   const list=selectedServices();
   return {count:list.length,minutes:list.reduce((sum,s)=>sum+s.minutes,0),price:list.reduce((sum,s)=>sum+s.price,0)};
 }
+
+function servicePhotos(s){return Array.isArray(s?.photos)?s.photos.slice(0,5):[];}
+function photoMarkup(url,title,cssClass){
+  return '<img class="'+cssClass+'" src="'+esc(url)+'" alt="'+esc(title)+'" loading="lazy" referrerpolicy="no-referrer" decoding="async" onerror="this.hidden=true"/>';
+}
+function openServiceDetails(id){
+  const s=(state.public?.services||[]).find(x=>x.id===Number(id));
+  if(!s)return;
+  const images=servicePhotos(s).map(url=>photoMarkup(url,s.title,"")).join("");
+  el("modalRoot").innerHTML='<div class="overlay"><section class="modal" role="dialog" aria-modal="true" aria-label="Описание услуги">'+
+    '<div class="modal-head"><div class="row"><h2>'+esc(s.title)+'</h2><button type="button" class="chip" onclick="closeServiceDetails()" aria-label="Закрыть">✕</button></div>'+
+    '<div class="sub">'+s.minutes+' минут · '+rub(s.price)+'</div></div>'+
+    '<div class="modal-scroll">'+(images?'<div class="photo-gallery">'+images+'</div>':
+    '<div class="hint">Фотографии этой услуги мастер ещё не добавил.</div>')+
+    '<h3>О процедуре</h3><p class="sub">'+esc(s.description||"Описание уточняется у мастера.")+'</p>'+
+    (s.details?'<h3>Что важно знать</h3><p class="sub" style="white-space:pre-wrap">'+esc(s.details)+'</p>':"")+'</div>'+
+    '<div class="modal-actions"><button class="btn line" onclick="closeServiceDetails()">Закрыть</button>'+
+    '<button class="btn" onclick="selectServiceFromDetails('+Number(s.id)+')">Выбрать услугу</button></div></section></div>';
+}
+function closeServiceDetails(){el("modalRoot").innerHTML="";}
+function selectServiceFromDetails(id){
+  closeServiceDetails();
+  if(state.page!=="booking"){state.serviceIds=[];route("booking");}
+  if(!state.serviceIds.includes(id))chooseService(id);
+}
+function portfolioPreview(){
+  const items=(state.public?.services||[]).flatMap(s=>servicePhotos(s).map(url=>({id:s.id,title:s.title,url}))).slice(0,12);
+  if(!items.length)return "";
+  return '<div class="section"><h2>Примеры работ</h2></div>'+
+  '<div class="sub" style="margin-bottom:12px">Посмотрите фотографии услуг и выберите то, что вам подходит.</div>'+
+  '<div class="portfolio-strip">'+items.map(x=>'<button type="button" class="portfolio-card" onclick="openServiceDetails('+x.id+')">'+
+  photoMarkup(x.url,x.title,"")+'<b>'+esc(x.title)+'</b></button>').join("")+'</div>';
+}
+function studioLocationCard(){
+  const location=state.public?.location||{};
+  const address=String(location.address||"").trim();
+  if(!address)return "";
+  const query=encodeURIComponent(address);
+  const hasPin=Number.isFinite(location.latitude)&&Number.isFinite(location.longitude);
+  const marker=hasPin?location.latitude+","+location.longitude:null;
+  const mapWidget=marker?
+    "https://www.openstreetmap.org/export/embed.html?bbox="+encodeURIComponent((location.longitude-0.005)+","+(location.latitude-0.003)+","+(location.longitude+0.005)+","+(location.latitude+0.003))+"&layer=mapnik&marker="+encodeURIComponent(marker):
+    "https://yandex.ru/map-widget/v1/?text="+query;
+  const yandex="https://yandex.ru/maps/?text="+(marker?encodeURIComponent(marker):query);
+  const gis="https://2gis.ru/search/"+query;
+  return '<div class="section"><h2>Как нас найти</h2></div><div class="card">'+
+    '<div class="studio-address">📍 '+esc(address)+'</div>'+
+    (location.landmark?'<p class="sub" style="margin-top:10px">Как пройти: '+esc(location.landmark)+'</p>':"")+
+    '<iframe class="studio-map" title="Карта расположения студии" src="'+esc(mapWidget)+'" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>'+
+    '<div class="studio-map-actions"><a class="btn line" href="'+esc(yandex)+'" rel="noopener noreferrer" target="_blank">Яндекс Карты ↗</a>'+
+    '<a class="btn line" href="'+esc(gis)+'" rel="noopener noreferrer" target="_blank">2ГИС ↗</a></div>'+
+    '<p class="location-note" style="margin-top:9px">Нажмите на карту или откройте маршрут в удобном приложении.</p></div>';
+}
+function photoUrlsFromInput(id){
+  const text=el(id)?.value||"";
+  return text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+}
+async function saveStudioLocation(){
+  const info={address:el("studioAddress")?.value.trim()||"",landmark:el("studioLandmark")?.value.trim()||"",
+    latitude:el("studioLatitude")?.value.trim()||"",longitude:el("studioLongitude")?.value.trim()||""};
+  try{
+    await api("/api/master/location",{method:"POST",body:JSON.stringify(info)});
+    state.public=await api("/api/public");
+    await loadMaster();
+    fail("Адрес и данные для карты сохранены. Клиенты увидят их на главной странице.");
+  }catch(e){fail("Не удалось сохранить адрес: "+e.message)}
+}
 function serviceCards(){
   const services=state.public?.services||[];
   return services.map(s=>{
-    const active=state.serviceIds.includes(s.id);
+    const active=state.serviceIds.includes(s.id),photo=servicePhotos(s)[0];
     return '<div role="checkbox" aria-checked="'+active+'" tabindex="0" class="card service '+(active?"selected":"")+
-      '" onclick="chooseService('+s.id+')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();chooseService('+s.id+')}">'+
-      '<div><div class="serviceName">'+esc(s.title)+'</div><div class="sub">'+esc(s.description||s.minutes+" мин")+
-      '</div><div class="cap">'+s.minutes+' мин</div></div><div style="text-align:right"><div class="price">'+rub(s.price)+
-      '</div><div class="service-check">'+(active?"✓":"＋")+'</div></div></div>';
-  }).join("")||'<div class="empty">Услуги будут доступны после настройки сервера</div>';
+      '" onclick="chooseService('+s.id+')" onkeydown="if(event.target===this&&(event.key===\'Enter\'||event.key===\' \')){event.preventDefault();chooseService('+s.id+')}">'+
+      (photo?photoMarkup(photo,s.title,"service-media"):"")+
+      '<div class="service-copy"><div class="serviceName">'+esc(s.title)+'</div>'+
+      '<div class="sub">'+esc(s.description||"Узнайте подробнее о процедуре")+'</div>'+
+      '<div class="cap">'+s.minutes+' минут</div>'+
+      '<button type="button" class="service-more" onclick="event.stopPropagation();openServiceDetails('+s.id+')">Фото и описание</button></div>'+
+      '<div class="service-right"><div class="price">'+rub(s.price)+'</div>'+
+      '<span class="service-check" aria-hidden="true">'+(active?"✓":"＋")+'</span></div></div>';
+  }).join("")||'<div class="empty">Услуги появятся после настройки мастером.</div>';
 }
 function chooseService(id){
   const selected=state.serviceIds.includes(id);
@@ -280,7 +371,7 @@ async function loadTelegramAvatar(){
     console.warn("Telegram avatar unavailable",error);
   }finally{state.avatarLoading=false;}
 }
-function publicView(){if(state.page==="home")return '<div class="hero"><div class="kicker">ONLINE BOOKING</div><h1>Ваше время — ваш выбор</h1><p>Записывайтесь к мастеру на удобное время без звонков и переписок.</p><button class="btn soft" onclick="route(\'booking\')">Записаться →</button></div>'+homeBookingCard();
+function publicView(){if(state.page==="home")return '<div class="hero"><div class="kicker">ONLINE BOOKING</div><h1>Ваше время — ваш выбор</h1><p>Записывайтесь к мастеру на удобное время без звонков и переписок.</p><button class="btn soft" onclick="route(\'booking\')">Записаться →</button></div>'+homeBookingCard()+portfolioPreview()+studioLocationCard();
 if(state.page==="booking"){
   const total=selectionTotal();
   const details=total.count?'<div class="booking-total"><b>Выбрано услуг: '+total.count+'</b><span>'+rub(total.price)+'</span></div>'+
@@ -304,7 +395,7 @@ if(state.page==="booking"){
     ' onclick="book()">'+(state.bookingPending?"Сохраняем запись…":"Подтвердить запись")+'</button>'+
     (!initial?'<div class="hint" style="margin-top:10px">Для записи откройте приложение через Telegram-бота.</div>':
       !state.public.ready?'<div class="hint" style="margin-top:10px">Онлайн-запись включится после подключения бота и мастера.</div>':'')+
-    '</div>';
+    '</div>'+studioLocationCard();
 }
 if(state.page==="visits"){
   const rows=state.bookings.filter(b=>b.status!=="cancelled_by_client"||(b.restore_until&&Date.parse(b.restore_until)>Date.now()));
@@ -404,6 +495,7 @@ function filterMasterClients(){
 }
 async function saveExistingService(id){
  const data={id,title:el("editTitle"+id).value,description:el("editDesc"+id).value,
+ details:el("editDetails"+id)?.value||"",photos:photoUrlsFromInput("editPhotos"+id),
  minutes:Number(el("editMinutes"+id).value),price:Number(el("editPrice"+id).value)};
  try{await api("/api/service",{method:"POST",body:JSON.stringify(data)});
  state.public=await api("/api/public");await loadMaster();fail("Услуга обновлена.");}
@@ -811,7 +903,7 @@ async function loadMaster(){
 async function blockDay(){try{const day=state.masterDate, start=el("from").value,end=el("to").value;if(!start||!end)return fail("Укажите начало и конец перерыва. Для выходного используйте настройку дня.");await api("/api/block",{method:"POST",body:JSON.stringify({day,startTime:start||null,endTime:end||null,reason:el("blockReason").value})});loadMaster()}catch(e){fail("Не удалось закрыть день: "+e.message)}}
 async function unblock(id){try{await api("/api/unblock",{method:"POST",body:JSON.stringify({id})});loadMaster()}catch(e){fail(e.message)}}
 async function setStatus(id,status){try{await api("/api/status",{method:"POST",body:JSON.stringify({id,status})});loadMaster()}catch(e){fail(e.message)}}
-async function createService(){try{await api("/api/service",{method:"POST",body:JSON.stringify({title:el("newServiceName").value,minutes:Number(el("newServiceMinutes").value),price:Number(el("newServicePrice").value)})});state.public=await api("/api/public");loadMaster()}catch(e){fail(e.message)}}
+async function createService(){try{await api("/api/service",{method:"POST",body:JSON.stringify({title:el("newServiceName").value,description:el("newServiceDescription")?.value||"",details:el("newServiceDetails")?.value||"",photos:photoUrlsFromInput("newServicePhotos"),minutes:Number(el("newServiceMinutes").value),price:Number(el("newServicePrice").value)})});state.public=await api("/api/public");loadMaster()}catch(e){fail(e.message)}}
 function onboard(){if(!initial){fail("Откройте приложение через Telegram-бота");return;}el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><div style="font-size:34px;text-align:center">✿</div><h2 style="text-align:center">Давайте знакомиться!</h2><p class="sub" style="text-align:center">Укажите ваше настоящее имя, чтобы мастер знал, кого ожидать на процедуре.</p><input class="field" id="newName" maxlength="50" placeholder="Например, Анастасия"/><button class="btn full" onclick="saveName()">Продолжить</button><p class="cap" style="text-align:center">Без паспортов и данных банковских карт</p></div></div>';}
 async function saveName(){const name=el("newName").value.trim();if(name.length<2)return fail("Введите имя, не менее двух символов");try{await api("/api/name",{method:"POST",body:JSON.stringify({name})});state.me.clientName=name;state.me.needsName=false;el("modalRoot").innerHTML="";render()}catch(e){fail(e.message)}}
 setInterval(updateRestoreCountdowns,1000);
