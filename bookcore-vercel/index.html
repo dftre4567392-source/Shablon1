@@ -659,10 +659,36 @@ if(state.page==="clients"){
     '<div class="sub" style="margin-top:6px">Последнее посещение: '+(u.lastVisit?esc(new Date(u.lastVisit).toLocaleDateString("ru-RU")):"Нет")+'</div>'+
     '<div class="sub" style="margin-top:6px">Предстоящих записей: '+Number(u.upcoming||0)+'</div></div>').join(""):'<div class="empty">Клиентов пока нет</div>');
 }
-return '<div class="section"><h2>Услуги и настройки</h2></div><div class="card"><h3>Добавить услугу</h3><input id="newServiceName" class="field" placeholder="Название услуги"/><div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" value="120" placeholder="Минут"/><input id="newServicePrice" class="field" type="number" min="0" value="1700" placeholder="Цена ₽"/></div><button class="btn full" onclick="createService()">Добавить</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить существующие услуги</h2></div>'+
+const loc=state.master?.location||state.public?.location||{};
+return '<div class="section"><h2>Услуги и настройки</h2></div>'+
+  '<div class="card" id="studioAddressSettings"><h3>📍 Адрес студии и карта</h3>'+
+  '<p class="sub">Укажите точный адрес — клиент увидит его на главной странице, откроет карту и сможет построить маршрут.</p>'+
+  '<label class="cap" for="studioAddress">Адрес с городом</label>'+
+  '<input class="field" id="studioAddress" value="'+esc(loc.address||"")+'" maxlength="250" placeholder="Например: Барнаул, улица ..., дом ..."/>'+
+  '<label class="cap" for="studioLandmark">Как пройти и ориентиры</label>'+
+  '<textarea class="field" id="studioLandmark" rows="3" maxlength="500" placeholder="Вход со двора, второй этаж, кабинет 12">'+esc(loc.landmark||"")+'</textarea>'+
+  '<p class="sub">Дополнительно можно указать координаты с карты для более точной отметки (необязательно).</p>'+
+  '<div class="grid"><input class="field" type="number" step="any" id="studioLatitude" aria-label="Широта" placeholder="Широта" value="'+esc(loc.latitude??"")+'"/>'+
+  '<input class="field" type="number" step="any" id="studioLongitude" aria-label="Долгота" placeholder="Долгота" value="'+esc(loc.longitude??"")+'"/></div>'+
+  '<button class="btn full" onclick="saveStudioLocation()">Сохранить адрес</button></div>'+
+  '<div class="section"><h2>Услуги и фотографии</h2></div>'+
+  '<div class="card"><h3>Добавить услугу</h3>'+
+  '<input id="newServiceName" class="field" placeholder="Название услуги" maxlength="150"/>'+
+  '<input id="newServiceDescription" class="field" placeholder="Коротко об услуге" maxlength="150"/>'+
+  '<textarea id="newServiceDetails" class="field" rows="4" maxlength="2500" placeholder="Что входит в процедуру, как подготовиться и что будет после"></textarea>'+
+  '<label class="cap" for="newServicePhotos">Фотографии работ: до 5 ссылок, каждая с новой строки</label>'+
+  '<textarea id="newServicePhotos" class="field" rows="3" placeholder="https://.../foto1.jpg"></textarea>'+
+  '<p class="cap">Используйте прямые HTTPS-ссылки на фотографии, которыми имеете право пользоваться. Если ссылок пока нет, оставьте поле пустым.</p>'+
+  '<div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" max="600" value="120" placeholder="Минут"/>'+
+  '<input id="newServicePrice" class="field" type="number" min="0" max="1000000" value="1700" placeholder="Цена ₽"/></div>'+
+  '<button class="btn full" onclick="createService()">Добавить услугу</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить существующие услуги</h2></div>'+
  (state.master?.services||[]).map(x=>'<div class="card" style="margin-bottom:12px"><b>'+esc(x.title)+'</b>'+
  '<label class="cap">Название</label><input id="editTitle'+x.id+'" class="field" value="'+esc(x.title)+'"/>'+
- '<label class="cap">Описание</label><input id="editDesc'+x.id+'" class="field" value="'+esc(x.description||"")+'"/>'+
+ '<label class="cap">Краткое описание</label><input id="editDesc'+x.id+'" class="field" value="'+esc(x.description||"")+'" maxlength="150"/>'+
+ '<label class="cap">Подробное описание: что входит, подготовка, результат</label><textarea id="editDetails'+x.id+'" rows="4" maxlength="2500" class="field">'+esc(x.details||"")+'</textarea>'+
+ '<label class="cap">Фотографии (до 5 HTTPS-ссылок, каждая с новой строки)</label>'+
+ '<textarea id="editPhotos'+x.id+'" rows="4" class="field">'+esc((x.photos||[]).join("\n"))+'</textarea>'+
+ ((x.photos||[]).length?'<div class="photo-gallery">'+(x.photos||[]).map(url=>photoMarkup(url,x.title,"")).join("")+'</div>':"")+
  '<div class="grid"><div><label class="cap">Сколько минут</label><input id="editMinutes'+x.id+'" class="field" type="number" min="15" max="600" value="'+x.minutes+'"/></div>'+
  '<div><label class="cap">Стоимость, ₽</label><input id="editPrice'+x.id+'" class="field" type="number" min="0" max="1000000" value="'+x.price+'"/></div></div>'+
  '<button class="btn line full" onclick="saveExistingService('+x.id+')">Сохранить</button></div>').join("")+
