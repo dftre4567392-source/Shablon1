@@ -27,7 +27,7 @@
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false};
+const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[]};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -72,6 +72,7 @@ function route(p){
   }
   render();
   if(p==="visits")void loadBookings();
+  if(p==="booking")void loadWaitlist();
 
 }
 function nav(){const n=isMaster()?[["overview","⌂","Обзор"],["calendar","▦","Календарь"],["clients","♧","Клиенты"],["settings","⚙","Настройки"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
@@ -219,7 +220,11 @@ if(state.page==="booking"){
     '<div class="section"><h2>Дата и время</h2></div>'+
     '<div class="card"><div class="sub">Выберите свободную дату</div>'+calendarMarkup()+
     '<div class="sub" style="margin:15px 0 9px">Свободное время</div>'+
-    '<div class="flex" id="slotList">'+slotsMarkup()+'</div></div>'+
+    '<div class="flex" id="slotList">'+slotsMarkup()+'</div>'+
+    (state.date&&state.serviceIds.length&&!state.slotsLoading&&!state.slots.length?
+      '<div class="hint" style="margin-top:12px">Нет подходящего времени? Встаньте в лист ожидания — бот сообщит, если освободится окно.<button class="btn line full" style="margin-top:10px" onclick="joinWaitlist()">🔔 Уведомить, когда появится время</button></div>':"")+
+    '</div>'+
+    (state.waitlist.length?'<div class="card" style="margin-top:12px"><b>Ваш лист ожидания</b>'+state.waitlist.map(w=>'<div class="row" style="margin-top:10px"><div class="sub">'+esc(w.day)+' — '+esc(w.service_name)+'</div><button class="chip" onclick="leaveWaitlist(\''+esc(w.id)+'\')">Убрать</button></div>').join("")+'</div>':"")+
     '<div class="card" style="margin-top:15px"><div class="row"><b>Итого</b><b>'+rub(total.price)+'</b></div>'+
     '<div class="sub" style="margin-top:8px">'+(state.date?'Дата: '+esc(visibleDate(state.date)):'Дата ещё не выбрана')+
     (state.time?', время: '+esc(state.time):'')+'</div>'+
@@ -294,7 +299,15 @@ async function restoreBooking(id){
 }
 function masterView(){if(state.loading)return '<div class="empty">Загружаем кабинет мастера…</div>';if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid"><div class="card"><div class="sub">Активных записей</div><div class="value">'+recent.length+'</div></div><div class="card"><div class="sub">Всего клиентов</div><div class="value">'+(state.master&&state.master.clients||[]).length+'</div></div></div><div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
 if(state.page==="calendar")return '<div class="section"><h2>Календарь мастера</h2></div><div class="card"><h3>Добавить запись вручную</h3><input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/><select id="manualService" class="field">'+state.public.services.map(s=>'<option value="'+s.id+'">'+esc(s.title)+'</option>').join("")+'</select><div class="grid"><input id="manualDate" type="date" class="field"/><input id="manualTime" type="time" class="field"/></div><button class="btn full" onclick="createManual()">Добавить запись</button></div><div class="card" style="margin-top:12px"><h3>Закрыть день или часы</h3><input id="blockDay" type="date" class="field"/><div class="grid"><input id="from" type="time" class="field" placeholder="От"/><input id="to" type="time" class="field" placeholder="До"/></div><input id="blockReason" class="field" placeholder="Причина (необязательно)"/><p class="cap">Оставьте время пустым, чтобы закрыть весь день.</p><button class="btn full" onclick="blockDay()">Заблокировать</button></div><div class="section"><h2>Блокировки</h2></div>'+(state.master&&state.master.blocks||[]).map(b=>'<div class="item row"><div><b>'+esc(b.day.slice(0,10))+'</b><div class="sub">'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</div></div><button class="btn line" onclick="unblock('+b.id+')">Открыть</button></div>').join("")+'<div class="section"><h2>Записи</h2></div>'+(state.master&&state.master.bookings||[]).map(b=>bookingCard(b)+(b.status==="confirmed"&&Date.parse(b.starts_at)<=Date.now()?'<div class="flex" style="margin-bottom:15px"><button class="chip" onclick="setStatus(\''+b.id+'\',\'completed\')">Выполнено</button><button class="chip" onclick="setStatus(\''+b.id+'\',\'no_show\')">Неявка</button></div>':"")).join("");
-if(state.page==="clients")return '<div class="section"><h2>Клиентская база</h2></div>'+(state.master&&state.master.clients||[]).map(u=>'<div class="item row"><div class="circle">♙</div><div style="flex:1"><b>'+esc(u.client_name||"Без имени")+'</b><div class="cap">Telegram ID: '+esc(u.telegram_id)+'</div></div></div>').join("")||'<div class="empty">Клиентов пока нет</div>';
+if(state.page==="clients"){
+  const users=state.master&&state.master.clients||[];
+  return '<div class="section"><h2>Клиенты и повторные визиты</h2></div>'+
+    '<div class="hint" style="margin-bottom:12px">История посещений помогает понимать, кто возвращается, и какие услуги предпочитают постоянные клиенты. Персональные предложения бот отправляет только с согласия клиента.</div>'+
+    (users.length?users.map(u=>'<div class="card" style="margin-bottom:10px"><div class="row"><div style="flex:1"><b>'+esc(u.client_name||"Без имени")+'</b><div class="sub">'+(u.returning?"⭐ Постоянный клиент":"Клиент")+'</div></div><span class="pill">'+Number(u.visits||0)+' визитов</span></div>'+
+    '<div class="sub" style="margin-top:10px">Любимая услуга: '+esc(u.favoriteService||"Пока нет завершённых визитов")+'</div>'+
+    '<div class="sub" style="margin-top:6px">Последнее посещение: '+(u.lastVisit?esc(new Date(u.lastVisit).toLocaleDateString("ru-RU")):"Нет")+'</div>'+
+    '<div class="sub" style="margin-top:6px">Предстоящих записей: '+Number(u.upcoming||0)+'</div></div>').join(""):'<div class="empty">Клиентов пока нет</div>');
+}
 return '<div class="section"><h2>Услуги и настройки</h2></div><div class="card"><h3>Добавить услугу</h3><input id="newServiceName" class="field" placeholder="Название услуги"/><div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" value="120" placeholder="Минут"/><input id="newServicePrice" class="field" type="number" min="0" value="1700" placeholder="Цена ₽"/></div><button class="btn full" onclick="createService()">Добавить</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить график</h2></div><div class="card"><select id="weekday" class="field"><option value="0">Понедельник</option><option value="1">Вторник</option><option value="2">Среда</option><option value="3">Четверг</option><option value="4">Пятница</option><option value="5">Суббота</option><option value="6">Воскресенье</option></select><div class="grid"><input id="workStart" type="time" class="field" value="10:00"/><input id="workEnd" type="time" class="field" value="19:00"/></div><label class="sub"><input id="workEnabled" type="checkbox" checked/> Рабочий день</label><button class="btn full" style="margin-top:12px" onclick="saveSchedule()">Сохранить график</button></div><div class="section"><h2>Рабочие дни</h2></div>'+(state.master&&state.master.schedule||[]).map(w=>'<div class="item row"><span>'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][w.weekday]+'</span><span>'+esc(w.start_time)+'–'+esc(w.end_time)+'</span><span class="pill">'+(w.active?"Рабочий":"Выходной")+'</span></div>').join("");}
 function render(){
   // Normalize initial screen after Telegram role verification.
@@ -339,6 +352,23 @@ async function book(){
     route("visits");
   }catch(error){fail("Не удалось записаться: "+error.message);if(state.date)void loadSlots();}
   finally{state.bookingPending=false;render();}
+}
+async function loadWaitlist(){
+  if(!initial)return;
+  try{state.waitlist=(await api("/api/waitlist")).entries||[];if(state.page==="booking")render();}
+  catch(e){console.warn("BOOKCORE_WAITLIST_ERROR",e)}
+}
+async function joinWaitlist(){
+  if(!state.date||!state.serviceIds.length)return fail("Выберите услугу и дату.");
+  if(!confirm("Сообщить вам в Telegram, если освободится время на выбранную дату?"))return;
+  try{
+    await api("/api/waitlist",{method:"POST",body:JSON.stringify({date:state.date,serviceIds:state.serviceIds})});
+    await loadWaitlist();fail("Вы добавлены в лист ожидания. Бот сообщит, если появится время.");
+  }catch(e){fail("Не удалось добавить в лист ожидания: "+e.message)}
+}
+async function leaveWaitlist(id){
+  try{await api("/api/waitlist/remove",{method:"POST",body:JSON.stringify({id})});await loadWaitlist();}
+  catch(e){fail("Не удалось убрать из листа ожидания: "+e.message)}
 }
 async function loadBookings(){try{state.bookings=(await api("/api/bookings")).bookings||[];render()}catch(error){fail("Не удалось загрузить записи: "+error.message)}}
 async function cancelBooking(id){
