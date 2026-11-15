@@ -41,7 +41,7 @@
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0};
+const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:""};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -74,7 +74,7 @@ function humanApiError(error){
   if(typeof error==="string"&&!/^[A-Z][A-Z0-9_]*$/.test(error))return error;
   return "Не удалось выполнить действие. Попробуйте ещё раз.";
 }
-async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json().catch(()=>null);if(x===null)throw new Error("Сервер временно недоступен. Попробуйте ещё раз.");if(!r.ok)throw new Error(humanApiError(x.error));return x;}
+async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{cache:"no-store",...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json().catch(()=>null);if(x===null)throw new Error("Сервер временно недоступен. Попробуйте ещё раз.");if(!r.ok)throw new Error(humanApiError(x.error));return x;}
 const isMaster=()=>state.me&&state.me.role==="master";
 async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}if(isMaster())state.loading=true;render();if(isMaster())void loadMaster();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
 function route(p){
@@ -116,7 +116,7 @@ function chooseService(id){
   const duration=(state.public?.services||[]).filter(x=>next.includes(x.id)).reduce((a,b)=>a+b.minutes,0);
   if(duration>600)return fail("Общая длительность превышает 10 часов. Выберите меньше услуг.");
   state.serviceIds=next;
-  state.time="";state.slots=[];state.slotsError="";state.slotsLoading=false;
+  state.time="";state.slots=[];state.slotsError="";state.slotsLoading=false;state.slotsRequest++;state.availabilityAlert="";
   render();
   if(state.date&&state.serviceIds.length)void loadSlots();
   void loadCalendarInfo();
@@ -216,8 +216,18 @@ function slotsMarkup(){
   if(!state.date)return '<p class="cap">Выберите дату в календаре.</p>';
   if(state.slotsLoading)return '<p class="cap">Проверяем свободное время…</p>';
   if(state.slotsError)return '<p class="error">'+esc(state.slotsError)+'</p>';
-  return state.slots.length?state.slots.map(t=>'<button type="button" class="chip '+(state.time===t?"active":"")+
+  const notice=state.availabilityAlert?'<div class="hint" role="status" style="margin-bottom:10px">'+esc(state.availabilityAlert)+'</div>':"";
+  const items=state.slots.length?state.slots.map(t=>'<button type="button" class="chip '+(state.time===t?"active":"")+
     '" onclick="selectTime(\''+t+'\')">'+t+'</button>').join(""):'<p class="cap">На этот день свободных окон нет. Выберите другой.</p>';
+  return notice+items;
+}
+function selectedTimeDetails(){
+  if(!state.time||!state.serviceIds.length)return "";
+  const total=selectionTotal(),[hours,mins]=state.time.split(":").map(Number);
+  const end=hours*60+mins+total.minutes,buffer=end+15;
+  const clock=n=>String(Math.floor(n/60)%24).padStart(2,"0")+":"+String(n%60).padStart(2,"0");
+  return '<div class="hint" style="margin-top:12px"><b>Ваша процедура: '+esc(state.time)+'–'+clock(end)+'</b><br>'+
+    'Длительность: '+total.minutes+' мин. До '+clock(buffer)+' время зарезервировано с учётом 15-минутного перерыва мастера.</div>';
 }
 function homeBookingCard(){
   const master=esc(state.public.masterName||"Мастер");
@@ -264,7 +274,7 @@ if(state.page==="booking"){
     '<div class="section"><h2>Дата и время</h2></div>'+
     '<div class="card"><div class="sub">Выберите свободную дату</div>'+calendarMarkup()+
     '<div class="sub" style="margin:15px 0 9px">Свободное время</div>'+
-    '<div class="flex" id="slotList">'+slotsMarkup()+'</div>'+
+    '<div class="flex" id="slotList">'+slotsMarkup()+'</div>'+selectedTimeDetails()+
     (state.date&&state.serviceIds.length&&!state.slotsLoading&&!state.slots.length?
       '<div class="hint" style="margin-top:12px">Нет подходящего времени? Встаньте в лист ожидания — бот сообщит, если освободится окно.<button class="btn line full" style="margin-top:10px" onclick="joinWaitlist()">🔔 Уведомить, когда появится время</button><a class="sub" style="display:block;margin-top:9px" href="https://t.me/Shablon1py_bot?start=waitlist">Если бот ещё не запущен — нажмите Start здесь</a></div>':"")+
     '</div>'+
@@ -361,26 +371,58 @@ function render(){
   nav();
   el("main").innerHTML=isMaster()?masterView():publicView();
 }
-async function loadSlots(){
+async function loadSlots({quiet=false}={}){
   const date=state.date,ids=[...state.serviceIds];
-  if(!date||!ids.length){state.slots=[];state.slotsLoading=false;render();return;}
-  const key=date+"|"+ids.join(",");
-  state.slotsLoading=true;state.slotsError="";render();
-  try{
-    const res=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+encodeURIComponent(ids.join(",")));
-    if(state.date+"|"+state.serviceIds.join(",")!==key)return;
-    state.slots=res.slots||[];
-  }catch(error){
-    if(state.date+"|"+state.serviceIds.join(",")!==key)return;
-    state.slots=[];state.slotsError=error.message||"Не удалось загрузить свободное время.";
-  }finally{
-    if(state.date+"|"+state.serviceIds.join(",")===key){state.slotsLoading=false;render();}
+  if(!date||!ids.length){
+    state.slots=[];state.time="";state.slotsLoading=false;state.slotsRequest++;
+    if(!quiet)render();
+    return;
   }
+  const request=++state.slotsRequest,key=date+"|"+ids.join(",");
+  if(!quiet){state.slotsLoading=true;state.slotsError="";render();}
+  try{
+    const result=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+encodeURIComponent(ids.join(",")));
+    if(request!==state.slotsRequest||state.date+"|"+state.serviceIds.join(",")!==key)return;
+    const newSlots=result.slots||[];
+    const changed=JSON.stringify(newSlots)!==JSON.stringify(state.slots);
+    const taken=!!state.time&&!newSlots.includes(state.time);
+    state.slots=newSlots;
+    if(taken){
+      state.time="";
+      state.availabilityAlert="Выбранное время только что заняли или закрыли. Выберите другое свободное окно.";
+    }else if(changed&&quiet){
+      state.availabilityAlert="Свободные часы обновлены автоматически.";
+    }else if(!quiet){
+      state.availabilityAlert="";
+    }
+    state.slotsError="";
+    state.availabilityUpdatedAt=Date.now();
+    if(changed||taken||!quiet){
+      // Render without resetting the calendar or losing other selected services.
+      render();
+    }
+  }catch(error){
+    if(request!==state.slotsRequest||state.date+"|"+state.serviceIds.join(",")!==key)return;
+    state.slotsError=error.message||"Не удалось проверить свободное время.";
+    if(!quiet)render();
+    else console.warn("BOOKCORE_BACKGROUND_SLOTS_ERROR",error);
+  }finally{
+    if(request===state.slotsRequest&&state.date+"|"+state.serviceIds.join(",")===key){
+      state.slotsLoading=false;
+      if(!quiet)render();
+    }
+  }
+}
+async function refreshAvailability(){
+  if(document.visibilityState==="hidden"||state.bookingPending||rescheduling&&state.page!=="booking")return;
+  if(state.page!=="booking"||isMaster())return;
+  if(state.date&&state.serviceIds.length)await loadSlots({quiet:true});
+  await loadCalendarInfo({quiet:true});
 }
 function selectDate(date){
   if(!validCalendarDate(date)||state.calendarInfo?.days?.[date]?.status==="off")return fail("Мастер не работает в выбранный день. Выберите другую дату.");
   state.date=date;state.calendarMonth=date.slice(0,7)+"-01";
-  state.time="";state.slots=[];state.slotsError="";
+  state.time="";state.slots=[];state.slotsError="";state.slotsRequest++;state.availabilityAlert="";
   if(state.serviceIds.length)void loadSlots();else render();
 }
 function selectTime(time){if(!state.slots.includes(time))return;state.time=time;render();}
@@ -513,5 +555,8 @@ async function createService(){try{await api("/api/service",{method:"POST",body:
 function onboard(){if(!initial){fail("Откройте приложение через Telegram-бота");return;}el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><div style="font-size:34px;text-align:center">✿</div><h2 style="text-align:center">Давайте знакомиться!</h2><p class="sub" style="text-align:center">Укажите ваше настоящее имя, чтобы мастер знал, кого ожидать на процедуре.</p><input class="field" id="newName" maxlength="50" placeholder="Например, Анастасия"/><button class="btn full" onclick="saveName()">Продолжить</button><p class="cap" style="text-align:center">Без паспортов и данных банковских карт</p></div></div>';}
 async function saveName(){const name=el("newName").value.trim();if(name.length<2)return fail("Введите имя, не менее двух символов");try{await api("/api/name",{method:"POST",body:JSON.stringify({name})});state.me.clientName=name;state.me.needsName=false;el("modalRoot").innerHTML="";render()}catch(e){fail(e.message)}}
 setInterval(updateRestoreCountdowns,1000);
+setInterval(()=>{void refreshAvailability()},10000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void refreshAvailability();});
+window.addEventListener("focus",()=>{void refreshAvailability();});
 init();
 </script></body></html>
