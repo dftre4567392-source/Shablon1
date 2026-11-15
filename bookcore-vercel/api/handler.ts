@@ -168,9 +168,31 @@ function normalizeServicePhotos(value){
     return url.toString();
   }).filter(Boolean);
 }
+
+function isManagedPrivatePhoto(raw){
+  if(typeof raw!=="string")return false;
+  try{const u=new URL(raw);return u.protocol==="https:"&&
+    /^[a-z0-9-]+\.private\.blob\.vercel-storage\.com$/i.test(u.hostname)&&
+    u.pathname.startsWith("/bookcore/portfolio/");}
+  catch{return false;}
+}
+function displayPhotoUrl(source,serviceId,index){
+  return isManagedPrivatePhoto(source)?
+    "/api/handler?route=%2Fapi%2Fphoto&service="+encodeURIComponent(serviceId)+"&index="+index:
+    source;
+}
+function validatePhotoBytes(buffer,mime){
+  if(!Buffer.isBuffer(buffer)||buffer.length<100||buffer.length>2_100_000)
+    fail(400,"INVALID_IMAGE_SIZE");
+  const jpeg=buffer[0]===0xff&&buffer[1]===0xd8&&buffer[2]===0xff;
+  const png=buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+  const webp=buffer.toString("ascii",0,4)==="RIFF"&&buffer.toString("ascii",8,12)==="WEBP";
+  if(!((mime==="image/jpeg"&&jpeg)||(mime==="image/png"&&png)||(mime==="image/webp"&&webp)))
+    fail(400,"INVALID_IMAGE_TYPE");
+}
 function publicService(s){
   return {id:s.id,title:s.title,description:s.description||"",
-    details:s.details||"",photos:Array.isArray(s.photos)?s.photos:[],
+    details:s.details||"",photos:(Array.isArray(s.photos)?s.photos:[]).map((url,i)=>displayPhotoUrl(url,s.id,i)),
     minutes:s.minutes,price:s.price};
 }
 
@@ -524,6 +546,23 @@ async function execute(req){
     if(!secret||req.headers.get("authorization")!=="Bearer "+secret)fail(401,"UNAUTHORIZED");
     const operational=await runOperationalNotifications();const waitlist=await runWaitlistAlerts();const repeat=await runRepeatOffers();return respond({ok:true,operational,waitlist,repeat});
   }
+  if(route==="/api/photo"&&method==="GET"){
+    const id=Number(uri.searchParams.get("service")),index=Number(uri.searchParams.get("index"));
+    if(!Number.isSafeInteger(id)||id<1||!Number.isInteger(index)||index<0||index>=5)
+      fail(404,"PHOTO_NOT_FOUND");
+    const {state}=await load();
+    const service=state.services.find(x=>x.id===id&&x.active);
+    const url=service?.photos?.[index];
+    if(!isManagedPrivatePhoto(url))fail(404,"PHOTO_NOT_FOUND");
+    const fetched=await get(url,{access:"private",ifNoneMatch:req.headers.get("if-none-match")||undefined});
+    if(!fetched)fail(404,"PHOTO_NOT_FOUND");
+    if(fetched.statusCode===304)return new Response(null,{status:304,headers:{"etag":fetched.blob.etag,"cache-control":"private, no-cache"}});
+    if(fetched.statusCode!==200||!fetched.stream)fail(404,"PHOTO_NOT_FOUND");
+    const type=fetched.blob.contentType;
+    if(!["image/jpeg","image/png","image/webp"].includes(type))fail(415,"INVALID_IMAGE_TYPE");
+    return new Response(fetched.stream,{headers:{"content-type":type,"etag":fetched.blob.etag,
+      "x-content-type-options":"nosniff","cache-control":"private, no-cache"}});
+  }
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
     const bot=await ensureBotSetup();
@@ -750,7 +789,7 @@ async function execute(req){
   if(route==="/api/master"&&method==="GET"){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
-      blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active).map(publicService),location:publicLocation(state),
+      blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active).map(s=>({...publicService(s),photoSources:Array.isArray(s.photos)?s.photos:[]})),location:publicLocation(state),
       clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),bookingWindowDays:bookingWindow(state)});
   }
 
@@ -835,6 +874,20 @@ async function execute(req){
     });
     return respond({ok:true});
   }
+  if(route==="/api/master/photo"&&method==="POST"){
+    const b=await body(req);
+    const mime=String(b.mime||"");
+    if(!["image/jpeg","image/png","image/webp"].includes(mime)||
+       typeof b.data!=="string"||b.data.length>2_900_000||
+       !/^[a-zA-Z0-9+/]+={0,2}$/.test(b.data))fail(400,"INVALID_IMAGE_TYPE");
+    const file=Buffer.from(b.data,"base64");
+    validatePhotoBytes(file,mime);
+    const ext=mime==="image/png"?"png":mime==="image/webp"?"webp":"jpg";
+    const uploaded=await put("bookcore/portfolio/"+randomUUID()+"."+ext,file,{
+      access:"private",addRandomSuffix:true,contentType:mime
+    });
+    return respond({ok:true,url:uploaded.url,size:file.length});
+  }
   if(route==="/api/master/location"&&method==="POST"){
     const b=await body(req);
     const location=normalizedLocation(b);
@@ -847,11 +900,11 @@ async function execute(req){
     const details=String(b.details??"").trim().replace(/[\u0000-\u001f]/g," ").slice(0,2500);
     if(String(b.details??"").length>2500)fail(400,"INVALID_SERVICE_DETAILS");
     const photos=b.photos===undefined?undefined:normalizeServicePhotos(b.photos);
-    await mutate(s=>{let item=s.services.find(x=>x.id===Number(b.id));if(!item){item={id:Math.max(0,...s.services.map(x=>x.id))+1,active:true};s.services.push(item);}
+    const serviceId=await mutate(s=>{let item=s.services.find(x=>x.id===Number(b.id));if(!item){item={id:Math.max(0,...s.services.map(x=>x.id))+1,active:true};s.services.push(item);}
       Object.assign(item,{title,minutes:min,price,description:clean(b.description),details});
       if(photos!==undefined)item.photos=photos;
-      return true;});
-    return respond({ok:true});
+      return item.id;});
+    return respond({ok:true,id:serviceId});
   }
   if(route==="/api/manual-book"&&method==="POST"){
     const b=await body(req),date=String(b.date||""),time=String(b.time||""),name=clean(b.name);
