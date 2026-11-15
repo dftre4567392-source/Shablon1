@@ -464,7 +464,7 @@ function masterAnalytics(s){
     recentDays:days};
 }
 async function body(req){try{return await req.json()}catch{return {};}}
-function secureUser(a){return {role:a.master?"master":"client"};}
+function secureUser(a){return {role:a.master?"master":"client",telegramId:a.id};}
 function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status,...(b.restore_until&&b.status==="cancelled_by_client"?{restore_until:b.restore_until}:{}), ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
 async function execute(req){
   const uri=new URL(req.url);
