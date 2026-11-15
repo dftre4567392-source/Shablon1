@@ -135,11 +135,50 @@ function bootstrapServices(){
     return {id:index+1,title,description,minutes:minutesCount,price,active:true};
   });
 }
+
+// Public studio location is edited only by an authenticated master.
+function publicLocation(s){
+  const l=s?.location||{};
+  return {address:typeof l.address==="string"?l.address:"",
+    landmark:typeof l.landmark==="string"?l.landmark:"",
+    latitude:Number.isFinite(l.latitude)?l.latitude:null,
+    longitude:Number.isFinite(l.longitude)?l.longitude:null};
+}
+function normalizedLocation(raw){
+  if(!raw||typeof raw!=="object")fail(400,"INVALID_LOCATION");
+  const address=String(raw.address??"").trim().replace(/[<>\p{Cc}]/gu,"").slice(0,250);
+  const landmark=String(raw.landmark??"").trim().replace(/[<>\p{Cc}]/gu,"").slice(0,500);
+  const latitude=raw.latitude===""||raw.latitude==null?null:Number(raw.latitude);
+  const longitude=raw.longitude===""||raw.longitude==null?null:Number(raw.longitude);
+  if((latitude===null)!==(longitude===null)||
+     (latitude!==null&&(!Number.isFinite(latitude)||!Number.isFinite(longitude)||
+       latitude< -90||latitude>90||longitude< -180||longitude>180)))
+    fail(400,"INVALID_LOCATION");
+  return {address,landmark,latitude,longitude};
+}
+function normalizeServicePhotos(value){
+  if(value==null)return [];
+  if(!Array.isArray(value)||value.length>5)fail(400,"INVALID_SERVICE_PHOTOS");
+  return value.map(raw=>{
+    if(typeof raw!=="string"||raw.length>1000)fail(400,"INVALID_SERVICE_PHOTOS");
+    let url;
+    try{url=new URL(raw.trim())}catch{fail(400,"INVALID_SERVICE_PHOTOS")}
+    if(url.protocol!=="https:"||!url.hostname||url.username||url.password)
+      fail(400,"INVALID_SERVICE_PHOTOS");
+    return url.toString();
+  }).filter(Boolean);
+}
+function publicService(s){
+  return {id:s.id,title:s.title,description:s.description||"",
+    details:s.details||"",photos:Array.isArray(s.photos)?s.photos:[],
+    minutes:s.minutes,price:s.price};
+}
+
 function seed(){return {
  users:{},
  services:bootstrapServices(),
  schedule:[0,1,2,3,4,5,6].map(weekday=>({weekday,start_time:"10:00",end_time:"19:00",active:weekday>=1&&weekday<=5})),
- blocks:[],day_overrides:[],booking_window_days:30,bookings:[],seq:1
+ blocks:[],day_overrides:[],booking_window_days:30,location:{address:"",landmark:"",latitude:null,longitude:null},bookings:[],seq:1
 };}
 async function getMetadata(){
   try{return await head(PATH);}
@@ -488,7 +527,7 @@ async function execute(req){
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
     const bot=await ensureBotSetup();
-    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,bookingWindowDays:bookingWindow(state),services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
+    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,bookingWindowDays:bookingWindow(state),location:publicLocation(state),services:state.services.filter(x=>x.active).map(publicService),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
   }
   // One snapshot for both the calendar and the selected day's slots.
   // Read the Blob once to avoid doubling storage reads for every active client.
@@ -711,7 +750,7 @@ async function execute(req){
   if(route==="/api/master"&&method==="GET"){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
-      blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active),
+      blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active).map(publicService),location:publicLocation(state),
       clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),bookingWindowDays:bookingWindow(state)});
   }
 
@@ -796,11 +835,22 @@ async function execute(req){
     });
     return respond({ok:true});
   }
+  if(route==="/api/master/location"&&method==="POST"){
+    const b=await body(req);
+    const location=normalizedLocation(b);
+    await mutate(s=>{s.location=location;return true;});
+    return respond({ok:true,location});
+  }
   if(route==="/api/service"&&method==="POST"){
     const b=await body(req),title=clean(b.title),min=Number(b.minutes),price=Number(b.price);
     if(title.length<3||!Number.isInteger(min)||min<15||min>600||!Number.isInteger(price)||price<0||price>1000000)fail(400,"INVALID_SERVICE");
+    const details=String(b.details??"").trim().replace(/[\u0000-\u001f]/g," ").slice(0,2500);
+    if(String(b.details??"").length>2500)fail(400,"INVALID_SERVICE_DETAILS");
+    const photos=b.photos===undefined?undefined:normalizeServicePhotos(b.photos);
     await mutate(s=>{let item=s.services.find(x=>x.id===Number(b.id));if(!item){item={id:Math.max(0,...s.services.map(x=>x.id))+1,active:true};s.services.push(item);}
-      Object.assign(item,{title,minutes:min,price,description:clean(b.description)});return true;});
+      Object.assign(item,{title,minutes:min,price,description:clean(b.description),details});
+      if(photos!==undefined)item.photos=photos;
+      return true;});
     return respond({ok:true});
   }
   if(route==="/api/manual-book"&&method==="POST"){
