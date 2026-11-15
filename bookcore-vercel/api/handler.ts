@@ -460,6 +460,21 @@ async function execute(req){
     const bot=await ensureBotSetup();
     return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,services:state.services.filter(x=>x.active).map(x=>({id:x.id,title:x.title,description:x.description,minutes:x.minutes,price:x.price})),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
   }
+  // One snapshot for both the calendar and the selected day's slots.
+  // Read the Blob once to avoid doubling storage reads for every active client.
+  if(route==="/api/availability"&&method==="GET"){
+    const month=uri.searchParams.get("month")||"";
+    const date=uri.searchParams.get("date")||"";
+    const services=uri.searchParams.get("services")||"";
+    if(date&&!bookableDate(date))fail(400,"DATE_OUT_OF_RANGE");
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))fail(400,"INVALID_MONTH");
+    if(services.length>64)fail(400,"INVALID_SERVICES");
+    const {state}=await load();
+    const dayStates=calendarDays(state,month,services);
+    const available=date?slots(state,date,services):[];
+    return respond({month,date,services,days:dayStates.days,slots:available,
+      serverTime:new Date().toISOString()});
+  }
   if(route==="/api/calendar"&&method==="GET"){
     const {state}=await load();
     const month=uri.searchParams.get("month")||"";
@@ -592,8 +607,10 @@ async function execute(req){
       s.bookings.push(appointment);
       return appointment;
     });
-    await notify(auth.id,"Запись подтверждена!\n"+saved.service_name+"\n"+prettyDate(saved.starts_at));
-    await notifyMasters("Новая запись: "+saved.name+"\n"+saved.service_name+"\n"+prettyDate(saved.starts_at));
+    await Promise.all([
+      notify(auth.id,"Запись подтверждена!\n"+saved.service_name+"\n"+prettyDate(saved.starts_at)),
+      notifyMasters("Новая запись: "+saved.name+"\n"+saved.service_name+"\n"+prettyDate(saved.starts_at))
+    ]);
     return respond({ok:true,id:saved.id});
   }
   if(route==="/api/cancel"&&method==="POST"){
