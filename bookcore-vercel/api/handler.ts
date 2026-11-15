@@ -223,7 +223,9 @@ function slots(s,date,ids,ignoreId=null,fixedMinutes=null){
     if(start<now+4*3600000)continue;
     if(m<15*60&&m+bundle.minutes+15>14*60)continue;
     if(s.blocks.some(x=>x.day===date&&x.start_time&&m<minutes(x.end_time)&&m+bundle.minutes+15>minutes(x.start_time)))continue;
-    if(s.bookings.some(x=>x.id!==ignoreId&&x.status==="confirmed"&&start<Date.parse(x.busy_until)&&end>Date.parse(x.starts_at)))continue;
+    if(s.bookings.some(x=>x.id!==ignoreId&&
+      (x.status==="confirmed"||(x.status==="cancelled_by_client"&&Date.parse(x.restore_until)>now))&&
+      start<Date.parse(x.busy_until)&&end>Date.parse(x.starts_at)))continue;
     result.push(time);
   }
   return result;
@@ -328,7 +330,7 @@ async function runRepeatOffers(){
 
 async function body(req){try{return await req.json()}catch{return {};}}
 function secureUser(a){return {role:a.master?"master":"client"};}
-function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status, ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
+function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status,...(b.restore_until&&b.status==="cancelled_by_client"?{restore_until:b.restore_until}:{}), ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
 async function execute(req){
   const uri=new URL(req.url);
   const route=uri.searchParams.get("route")||"/health";
@@ -473,11 +475,38 @@ async function execute(req){
       if(!auth.master&&x.telegram_id!==auth.id)fail(403,"FORBIDDEN");
       if(!auth.master&&Date.parse(x.starts_at)-Date.now()<12*3600000)fail(409,"TOO_LATE_TO_CANCEL");
       if(x.status!=="confirmed")fail(409,"NOT_ACTIVE");
-      x.status=auth.master?"cancelled_by_master":"cancelled_by_client";return {...x};
+      x.status=auth.master?"cancelled_by_master":"cancelled_by_client";
+      // Protect the original slot for exactly five minutes after a client's cancellation.
+      x.cancelled_at=new Date().toISOString();
+      x.restore_until=auth.master?null:new Date(Date.now()+5*60*1000).toISOString();
+      return {...x};
     });
     if(auth.master)await notify(booking.telegram_id,"Мастер отменил запись: "+prettyDate(booking.starts_at));
     else await notifyMasters("Клиент отменил запись: "+booking.name);
     return respond({ok:true});
+  }
+  if(route==="/api/restore"&&method==="POST"){
+    const b=await body(req);
+    const booking=await mutate(s=>{
+      const x=s.bookings.find(row=>row.id===b.id);
+      if(!x)fail(404,"NOT_FOUND");
+      if(x.telegram_id!==auth.id)fail(403,"FORBIDDEN");
+      if(x.status!=="cancelled_by_client"||!x.restore_until)fail(409,"RESTORE_NOT_AVAILABLE");
+      if(Date.parse(x.restore_until)<=Date.now())fail(409,"RESTORE_EXPIRED");
+      const parts=Object.fromEntries(studioFormatter.formatToParts(new Date(x.starts_at)).map(p=>[p.type,p.value]));
+      const day=parts.year+"-"+parts.month+"-"+parts.day;
+      const time=parts.hour+":"+parts.minute;
+      const duration=originalBookingMinutes(x);
+      if(!duration||!slots(s,day,x.service_ids||[x.service_id],x.id,duration).includes(time))
+        fail(409,"TIME_NOT_AVAILABLE");
+      x.status="confirmed";
+      x.restored_at=new Date().toISOString();
+      x.restore_until=null;
+      return {...x};
+    });
+    await notify(auth.id,"✅ Запись восстановлена!\\n"+booking.service_name+"\\n"+prettyDate(booking.starts_at));
+    await notifyMasters("Клиент восстановил запись: "+booking.name+"\\n"+prettyDate(booking.starts_at));
+    return respond({ok:true,id:booking.id});
   }
   if(route==="/api/reschedule"&&method==="POST"){
     const b=await body(req),date=String(b.date||""),time=String(b.time||"");
