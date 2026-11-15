@@ -247,7 +247,13 @@ function offerSettingsView(){
     '<div class="hint">Только после согласия. Не больше одного успешного приглашения на один завершённый визит. Если уже есть будущая запись, напоминание не придёт.</div>'+
     (!prefs.botStarted?'<div class="sub" style="margin-top:12px">⚠️ Для отправки сообщений откройте чат бота и нажмите Start.</div>'+botLink:
     '<div class="sub" style="margin-top:12px">✅ Бот активирован для этого аккаунта.</div>')+
-    '<div class="sub" style="margin-top:10px">Отключить предложения можно здесь или командой /offers_off. Служебные подтверждения записей останутся активными.</div></div>';
+    '<div class="sub" style="margin-top:10px">Отключить предложения можно здесь или командой /offers_off. Служебные подтверждения записей останутся активными.</div></div>'+
+    '<div class="section"><h2>Что присылает бот</h2></div><div class="card">'+
+    '<div class="sub" style="line-height:2">✅ <b>Запись создана:</b> услуга, дата и время.<br>'+
+    '📅 <b>Перенос:</b> новая дата и время записи.<br>'+
+    '❌ <b>Отмена:</b> сообщение об отмене записи.<br>'+
+    '🌸 <b>Повторный визит:</b> любимая услуга и реальные свободные окна после выбранного интервала (только по согласию).</div>'+
+    '<p class="cap" style="margin-top:12px">Повторное предложение не создаёт запись автоматически. Вы подтверждаете её самостоятельно.</p></div>';
 }
 async function loadNotificationPrefs(){
   try{state.notificationPrefs=await api("/api/notifications");if(state.page==="profile")render();}
