@@ -41,7 +41,7 @@
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false};
+const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false,masterMonth:"",masterDate:"",masterCalendar:null,masterServiceId:null,masterTime:"",masterSlots:[],masterCalendarRequest:0};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -52,7 +52,10 @@ const API_ERROR_TEXT={
   NAME_REQUIRED:"Сначала укажите имя в профиле.",
   INVALID_DATE_TIME:"Проверьте выбранную дату и время.",
   INVALID_DATE:"Такой даты не существует.",
-  DATE_OUT_OF_RANGE:"Выберите дату в пределах ближайших 45 дней.",
+  DATE_OUT_OF_RANGE:"Мастер пока не открыл запись на выбранную дату.",
+  INVALID_BOOKING_WINDOW:"Выберите допустимый период для записи.",
+  INVALID_DAY_SCHEDULE:"Проверьте дату и часы рабочего дня.",
+  CANCELLATION_REASON_REQUIRED:"Укажите причину отмены не короче 8 символов.",
   INVALID_SERVICES:"Выберите доступные услуги.",
   EXISTING_BOOKINGS:"Есть подтверждённые записи. Сначала перенесите их или выберите другой график.",
   INVALID_BLOCK:"Выберите корректный день в пределах года и правильно укажите часы.",
@@ -143,7 +146,7 @@ function visibleDate(date){
 }
 function studioMaxDate(){
   const day=new Date(studioToday()+"T00:00:00Z");
-  day.setUTCDate(day.getUTCDate()+45);
+  day.setUTCDate(day.getUTCDate()+([7,14,30,45].includes(Number(state.public?.bookingWindowDays))?Number(state.public.bookingWindowDays):30));
   return day.toISOString().slice(0,10);
 }
 function validCalendarDate(value){
@@ -223,7 +226,7 @@ function calendarMarkup(mode="booking"){
     '<button type="button" class="cal-nav" onclick="changeMonth(1)"'+(next?"":" disabled")+' aria-label="Следующий месяц">›</button></div>'+
     '<div class="cal-grid">'+week+days+'</div>'+
     '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Свободно</span><span class="legend-item"><i class="legend-dot short"></i>Сокращённый</span><span class="legend-item"><i class="legend-dot busy"></i>Мест нет</span><span class="legend-item"><i class="legend-dot off"></i>Выходной</span></div>'+
-    '<div class="cal-caption">Цвета обновляются по расписанию мастера и выбранным услугам. Запись на ближайшие 45 дней.</div></div>';
+    '<div class="cal-caption">Расписание устанавливает мастер. Запись открыта на '+esc(state.public?.bookingWindowDays||30)+' дней вперёд.</div></div>';
 }
 function slotsMarkup(){
   if(!state.serviceIds.length)return '<p class="cap">Сначала выберите одну или несколько услуг.</p>';
@@ -347,8 +350,9 @@ function bookingCard(b){
     '<div class="hint" style="margin-top:12px">⏳ Время и очередь сохранены ещё <b class="restore-countdown" data-expiry="'+esc(b.restore_until)+'">'+countdownLabel(remaining)+'</b></div>'+
     '<button class="btn full" style="margin-top:12px" onclick="restoreBooking('+id+')">Вернуть запись на прежнее время →</button>':"";
   const rebookAction=(!isActive&&!isCancelled||isPast)&&!isMaster()?'<button class="btn line full" style="margin-top:12px" onclick="rebookFromHistory('+id+')">Записаться снова →</button>':"";
+  const cancellationReason=b.cancellation_reason?'<div class="hint" style="margin-top:9px">Причина отмены: '+esc(b.cancellation_reason)+'</div>':"";
   const customer=isMaster()?'<div class="sub" style="margin:7px 0">Клиент: '+esc(b.name||"Имя не указано")+'</div>':"";
-  return '<div class="card" style="margin-bottom:10px"><div class="row" style="gap:9px;align-items:flex-start"><b style="flex:1;min-width:0">'+esc(b.service_name||"Услуга")+'</b>'+badge+'</div>'+customer+'<div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b></div>'+activeActions+restoreAction+rebookAction+'</div>';
+  return '<div class="card" style="margin-bottom:10px"><div class="row" style="gap:9px;align-items:flex-start"><b style="flex:1;min-width:0">'+esc(b.service_name||"Услуга")+'</b>'+badge+'</div>'+customer+'<div class="sub" style="margin:9px 0">'+esc(date)+'</div><div class="row"><b>'+rub(b.price)+'</b></div>'+activeActions+restoreAction+rebookAction+cancellationReason+'</div>';
 }
 function countdownLabel(ms){return String(Math.floor(ms/60000)).padStart(2,"0")+":"+String(Math.floor((ms%60000)/1000)).padStart(2,"0");}
 function updateRestoreCountdowns(){
@@ -405,8 +409,154 @@ async function saveExistingService(id){
  state.public=await api("/api/public");await loadMaster();fail("Услуга обновлена.");}
  catch(e){fail("Не удалось сохранить: "+e.message)}
 }
+
+function masterTodayShift(){
+ const date=state.masterDate||studioToday(),weekday=(new Date(date+"T12:00:00Z").getUTCDay()+6)%7;
+ return (state.masterCalendar?.overrides||[]).find(x=>x.day===date)||
+   (state.master?.schedule||[]).find(x=>x.weekday===weekday)||
+   {active:false,start_time:"10:00",end_time:"19:00"};
+}
+function masterCalendarMarkup(){
+ const month=state.masterMonth||studioToday().slice(0,7),view=new Date(month+"-01T12:00:00Z");
+ const year=view.getUTCFullYear(),mo=view.getUTCMonth(),offset=(view.getUTCDay()+6)%7;
+ const length=new Date(Date.UTC(year,mo+1,0)).getUTCDate();
+ const title=new Intl.DateTimeFormat("ru-RU",{month:"long",year:"numeric",timeZone:"UTC"}).format(view);
+ const earlier=month>studioToday().slice(0,7),limit=(()=>{
+  const d=new Date(studioToday()+"T12:00:00Z");d.setUTCDate(d.getUTCDate()+45);return d.toISOString().slice(0,7);
+ })(),later=month<limit;
+ let days="",n=state.masterCalendar?.month===month?state.masterCalendar.days:{};
+ for(let i=0;i<offset;i++)days+='<span class="cal-empty" aria-hidden="true"></span>';
+ for(let d=1;d<=length;d++){
+  const day=year+"-"+String(mo+1).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+  const max= new Date(studioToday()+"T12:00:00Z");max.setUTCDate(max.getUTCDate()+45);
+  const valid=day>=studioToday()&&day<=max.toISOString().slice(0,10);
+  const item=n?.[day],status=item?.status||"";
+  const mark={available:"✓",short:"◐",off:"×",busy:"•"}[status]||"";
+  const current=state.masterDate===day;
+  days+='<button type="button" class="cal-day'+(status?" state-"+status:"")+(current?" chosen":"")+'"'+
+   (valid?' onclick="selectMasterDay(\''+day+'\')"':' disabled')+
+   ' aria-label="'+esc(day+(item?" — "+item.label:""))+'" title="'+esc(item?.label||"")+'">'+d+
+   (mark?'<span class="cal-symbol" aria-hidden="true">'+mark+'</span>':"")+'</button>';
+ }
+ return '<div class="book-calendar"><div class="cal-header"><button class="cal-nav" type="button" onclick="shiftMasterMonth(-1)"'+(earlier?"":" disabled")+' aria-label="Предыдущий месяц">‹</button>'+
+ '<b>'+esc(title)+'</b><button class="cal-nav" type="button" onclick="shiftMasterMonth(1)"'+(later?"":" disabled")+' aria-label="Следующий месяц">›</button></div>'+
+ '<div class="cal-grid">'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(x=>'<span class="cal-weekday">'+x+'</span>').join("")+days+'</div>'+
+ '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Есть время</span>'+
+ '<span class="legend-item"><i class="legend-dot short"></i>Короткий день</span><span class="legend-item"><i class="legend-dot busy"></i>Всё занято</span>'+
+ '<span class="legend-item"><i class="legend-dot off"></i>Выходной</span></div></div>';
+}
+function masterDayModeChanged(){
+ const value=el("masterDayMode")?.value;
+ const start=el("masterDayStart"),end=el("masterDayEnd");
+ if(!start||!end)return;
+ if(value==="short"){start.value="10:00";end.value="14:00";}
+ if(value==="normal"){start.value="10:00";end.value="19:00";}
+ const disabled=value==="off";start.disabled=disabled;end.disabled=disabled;
+}
+function masterTimeOptions(){
+ const list=state.masterSlots||[];
+ return list.length?list.map(time=>'<button type="button" class="chip '+(state.masterTime===time?"active":"")+
+ '" onclick="chooseMasterTime(\''+time+'\')">'+time+'</button>').join(""):
+ '<div class="sub">Нет свободного времени для выбранной услуги и дня. Измените часы работы или выберите другую дату.</div>';
+}
+function masterCalendarView(){
+ const date=state.masterDate||studioToday(),shift=masterTodayShift();
+ const hours=Number((shift.end_time||"19:00").slice(0,2))*60+Number((shift.end_time||"19:00").slice(3))-
+             Number((shift.start_time||"10:00").slice(0,2))*60-Number((shift.start_time||"10:00").slice(3));
+ const kind=!shift.active?"off":hours<=480?"short":"normal";
+ const todayRows=(state.master?.bookings||[]).filter(b=>new Intl.DateTimeFormat("en-CA",{timeZone:state.public?.timezone||"Europe/Moscow",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(b.starts_at))===date);
+ const blocks=(state.master?.blocks||[]).filter(b=>b.day===date);
+ const windowDays=state.master?.bookingWindowDays||state.public?.bookingWindowDays||30;
+ return '<div class="section"><h2>Календарь мастера</h2></div>'+
+ '<div class="card"><h3>На сколько дней открывать запись?</h3><p class="sub">Клиенты смогут выбирать только даты в установленном вами периоде. За его пределами запись закрыта.</p>'+
+ '<select id="bookingWindow" class="field" aria-label="Период открытия записи">'+
+ [[7,"На неделю"],[14,"На две недели"],[30,"На месяц"],[45,"На 45 дней"]].map(x=>'<option value="'+x[0]+'"'+(Number(windowDays)===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
+ '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div>'+
+ '<div class="section"><h2>Выберите день</h2></div>'+masterCalendarMarkup()+
+ '<div class="card" style="margin-top:13px"><h3>Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</h3>'+
+ '<p class="sub">Можно открыть дополнительный рабочий день, сделать выходной или сократить смену. Уже подтверждённые визиты нельзя случайно удалить.</p>'+
+ '<label class="cap" for="masterDayMode">Как работает мастер?</label>'+
+ '<select class="field" id="masterDayMode" onchange="masterDayModeChanged()">'+
+ [["normal","Полный рабочий день"],["short","Сокращённый рабочий день"],["off","Выходной"]].map(x=>'<option value="'+x[0]+'"'+(kind===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
+ '</select><div class="grid"><div><label class="cap">Начало рабочего дня</label><input id="masterDayStart" class="field" type="time" value="'+esc(shift.start_time||"10:00")+'"'+(kind==="off"?" disabled":"")+'/></div>'+
+ '<div><label class="cap">Конец рабочего дня</label><input id="masterDayEnd" class="field" type="time" value="'+esc(shift.end_time||"19:00")+'"'+(kind==="off"?" disabled":"")+'/></div></div>'+
+ '<button class="btn full" onclick="saveMasterDay()">Сохранить этот день</button></div>'+
+ '<div class="section"><h2>Добавить клиента на '+esc(date)+'</h2></div>'+
+ '<div class="card"><p class="sub">Выберите услугу и свободное время прямо в календаре — так же, как это делает клиент.</p>'+
+ '<input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/>'+
+ '<select id="manualService" class="field" onchange="changeMasterService(this.value)">'+(state.public?.services||[]).map(x=>
+ '<option value="'+x.id+'"'+(Number(state.masterServiceId||state.public?.services?.[0]?.id)===x.id?" selected":"")+'>'+esc(x.title)+' ('+x.minutes+' мин)</option>').join("")+'</select>'+
+ '<div class="sub" style="margin:14px 0 9px">Свободное время</div><div class="flex" id="masterTimeChoices">'+masterTimeOptions()+'</div>'+
+ '<input id="manualDate" type="hidden" value="'+esc(date)+'"/>'+
+ '<input id="manualTime" type="hidden" value="'+esc(state.masterTime)+'"/>'+
+ '<button class="btn full" style="margin-top:13px" onclick="createManual()">Записать клиента</button></div>'+
+ '<div class="section"><h2>Обед, перерыв или выходной</h2></div>'+
+ '<div class="card"><p class="sub">Для перерыва укажите начало и конец. Чтобы закрыть весь день, сохраните его как выходной выше.</p>'+
+ '<input id="blockDay" type="hidden" value="'+esc(date)+'"/>'+
+ '<div class="grid"><input id="from" class="field" type="time" aria-label="Начало перерыва"/>'+
+ '<input id="to" class="field" type="time" aria-label="Конец перерыва"/></div>'+
+ '<input id="blockReason" class="field" placeholder="Причина, например: обед"/>'+
+ '<button class="btn line full" onclick="blockDay()">Добавить перерыв</button></div>'+
+ (blocks.length?'<div class="section"><h2>Перерывы и блокировки</h2></div>'+blocks.map(b=>
+ '<div class="item row"><div><b>'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</b><div class="sub">'+esc(b.reason||"Без причины")+'</div></div>'+
+ '<button class="btn line" onclick="unblock('+Number(b.id)+')">Удалить</button></div>').join(""):"")+
+ '<div class="section"><h2>Записи на выбранную дату</h2></div>'+
+ (todayRows.length?todayRows.map(bookingCard).join(""):'<div class="empty">На этот день записей нет</div>')+
+ '<button class="btn line full" onclick="loadMaster()">Обновить календарь</button>';
+}
+async function loadMasterCalendar(){
+ if(!isMaster()||state.page!=="calendar")return;
+ const month=state.masterMonth||studioToday().slice(0,7);
+ const request=++state.masterCalendarRequest;
+ try{const data=await api("/api/master/calendar?month="+encodeURIComponent(month));
+   if(request!==state.masterCalendarRequest||state.page!=="calendar")return;
+   state.masterCalendar={month,days:data.days||{},overrides:data.overrides||[]};
+   render();
+ }catch(error){console.warn("BOOKCORE_MASTER_CALENDAR_FAILED",error);fail("Не удалось загрузить календарь: "+error.message);}
+}
+async function loadMasterSlots(){
+ if(!isMaster()||state.page!=="calendar")return;
+ const date=state.masterDate||studioToday(),service=Number(state.masterServiceId||state.public?.services?.[0]?.id);
+ state.masterTime="";state.masterSlots=[];
+ if(!service)return;
+ try{const r=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+service);
+   if(state.page!=="calendar"||date!==state.masterDate||service!==Number(state.masterServiceId||state.public?.services?.[0]?.id))return;
+   state.masterSlots=r.slots||[];
+   const holder=el("masterTimeChoices");if(holder)holder.innerHTML=masterTimeOptions();
+ }catch(e){console.warn("BOOKCORE_MASTER_SLOTS_FAILED",e);}
+}
+function chooseMasterTime(time){if(!state.masterSlots.includes(time))return;state.masterTime=time;
+ const field=el("manualTime");if(field)field.value=time;
+ const holder=el("masterTimeChoices");if(holder)holder.innerHTML=masterTimeOptions();
+}
+function changeMasterService(value){state.masterServiceId=Number(value);void loadMasterSlots();}
+function selectMasterDay(day){state.masterDate=day;state.masterTime="";state.masterSlots=[];render();void loadMasterSlots();}
+function shiftMasterMonth(delta){
+ const current=new Date((state.masterMonth||studioToday().slice(0,7))+"-01T12:00:00Z");
+ current.setUTCMonth(current.getUTCMonth()+delta);
+ const month=current.toISOString().slice(0,7);
+ const today=studioToday();
+ const max=new Date(today+"T12:00:00Z");max.setUTCDate(max.getUTCDate()+45);
+ if(month<today.slice(0,7)||month>max.toISOString().slice(0,7))return;
+ state.masterMonth=month;state.masterDate=month===today.slice(0,7)?today:month+"-01";
+ if(state.masterDate<today)state.masterDate=today;
+ render();void loadMasterCalendar();void loadMasterSlots();
+}
+async function saveMasterWindow(){
+ const days=Number(el("bookingWindow")?.value);
+ try{await api("/api/master/window",{method:"POST",body:JSON.stringify({days})});
+   state.public.bookingWindowDays=days;await loadMaster();fail("Готово: запись открыта на "+days+" дней.");
+ }catch(e){fail("Не удалось изменить период: "+e.message)}
+}
+async function saveMasterDay(){
+ const status=el("masterDayMode")?.value,active=status!=="off";
+ const start=el("masterDayStart")?.value||"10:00",end=el("masterDayEnd")?.value||"19:00";
+ try{await api("/api/master/day",{method:"POST",body:JSON.stringify({day:state.masterDate,active,start,end})});
+   await loadMaster();fail("Рабочее время выбранного дня сохранено.");
+ }catch(e){fail("Не удалось сохранить день: "+e.message)}
+}
 function masterView(){if(state.page==="analytics"&&!state.loading)return masterReports();if(state.loading)return '<div class="empty">Загружаем кабинет мастера…</div>';if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid">' +masterMetric("Ждут посещения",recent.length)+masterMetric("Всего клиентов",(state.master?.clients||[]).length)+masterMetric("Записей сегодня",state.master?.analytics?.todayBookings??0)+masterMetric("Постоянных клиентов",state.master?.analytics?.regularClients??0)+masterMetric("В листе ожидания",state.master?.waitlist??0)+masterMetric("Процедур за месяц",state.master?.analytics?.completedThisMonth??0)+'</div><div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
-if(state.page==="calendar")return '<div class="section"><h2>Календарь мастера</h2></div><div class="card"><h3>Добавить запись вручную</h3><input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/><select id="manualService" class="field">'+state.public.services.map(s=>'<option value="'+s.id+'">'+esc(s.title)+'</option>').join("")+'</select><div class="grid"><input id="manualDate" type="date" class="field"/><input id="manualTime" type="time" class="field"/></div><button class="btn full" onclick="createManual()">Добавить запись</button></div><div class="card" style="margin-top:12px"><h3>Закрыть день или часы</h3><input id="blockDay" type="date" class="field"/><div class="grid"><input id="from" type="time" class="field" placeholder="От"/><input id="to" type="time" class="field" placeholder="До"/></div><input id="blockReason" class="field" placeholder="Причина (необязательно)"/><p class="cap">Оставьте время пустым, чтобы закрыть весь день.</p><button class="btn full" onclick="blockDay()">Заблокировать</button></div><div class="section"><h2>Блокировки</h2></div>'+(state.master&&state.master.blocks||[]).map(b=>'<div class="item row"><div><b>'+esc(b.day.slice(0,10))+'</b><div class="sub">'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</div></div><button class="btn line" onclick="unblock('+b.id+')">Открыть</button></div>').join("")+'<div class="section"><h2>Записи</h2></div>'+(state.master&&state.master.bookings||[]).map(b=>bookingCard(b)+(b.status==="confirmed"&&Date.parse(b.starts_at)<=Date.now()?'<div class="flex" style="margin-bottom:15px"><button class="chip" onclick="setStatus(\''+b.id+'\',\'completed\')">Выполнено</button><button class="chip" onclick="setStatus(\''+b.id+'\',\'no_show\')">Неявка</button></div>':"")).join("");
+if(state.page==="calendar")return masterCalendarView();
 if(state.page==="clients"){
   const users=state.master&&state.master.clients||[];
   return '<div class="section"><h2>Клиенты и повторные визиты</h2></div><div class="card" style="margin-bottom:12px"><label class="cap">Найти клиента по имени</label><input class="field" id="masterClientSearch" oninput="filterMasterClients()" placeholder="Имя клиента"/></div>'+
@@ -546,16 +696,34 @@ async function leaveWaitlist(id){
 }
 async function loadBookings(){try{state.bookings=(await api("/api/bookings")).bookings||[];render()}catch(error){fail("Не удалось загрузить записи: "+error.message)}}
 async function cancelBooking(id){
-  if(!confirm("Отменить запись? После отмены у вас будет 5 минут, чтобы вернуть её на прежнее время."))return;
-  try{
-    await api("/api/cancel",{method:"POST",body:JSON.stringify({id})});
-    await loadBookings();
-    if(isMaster())void loadMaster();
-  }catch(e){fail(e.message)}
+  if(isMaster()){
+    const label=(state.master?.bookings||[]).find(b=>b.id===id)?.service_name||"запись";
+    el("modalRoot").innerHTML='<div class="overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="Причина отмены">'+
+      '<div class="modal-head"><h2>Отмена записи</h2><p class="sub">Вы отменяете: '+esc(label)+'. Клиент получит сообщение с объяснением.</p></div>'+
+      '<div class="modal-scroll"><label class="cap" for="masterCancelReason">Почему нужно отменить?</label>'+
+      '<textarea class="field" id="masterCancelReason" rows="4" maxlength="300" placeholder="Например: мастер заболел, предлагаем выбрать другую дату"></textarea>'+
+      '<p class="cap">Укажите понятную причину (не менее 8 символов).</p></div>'+
+      '<div class="modal-actions"><button class="btn line" onclick="closeMasterCancel()">Оставить запись</button>'+
+      '<button class="btn" onclick="submitMasterCancel(\''+esc(id)+'\')">Подтвердить отмену</button></div></div></div>';
+    return;
+  }
+  if(!confirm("Отменить запись? Вы сможете вернуть то же время в течение пяти минут."))return;
+  try{await api("/api/cancel",{method:"POST",body:JSON.stringify({id})});await loadBookings();}
+  catch(e){fail(e.message)}
+}
+function closeMasterCancel(){el("modalRoot").innerHTML="";}
+async function submitMasterCancel(id){
+ const reason=el("masterCancelReason")?.value.trim()||"";
+ if(reason.length<8)return fail("Опишите причину отмены подробнее — хотя бы 8 символов.");
+ try{
+  await api("/api/cancel",{method:"POST",body:JSON.stringify({id,reason})});
+  closeMasterCancel();await loadMaster();fail("Запись отменена. Причина сохранена, клиенту отправлено уведомление.");
+ }catch(e){fail("Не удалось отменить: "+e.message)}
 }
 
 async function createManual(){
-  const body={name:el("manualName").value.trim(),serviceId:Number(el("manualService").value),date:el("manualDate").value,time:el("manualTime").value};
+  const body={name:el("manualName").value.trim(),serviceId:Number(el("manualService").value),date:state.masterDate,time:state.masterTime};
+  if(!body.time||!state.masterSlots.includes(body.time))return fail("Сначала выберите свободное время в календаре.");
   try{await api("/api/manual-book",{method:"POST",body:JSON.stringify(body)});loadMaster();}
   catch(e){fail("Не удалось создать запись: "+e.message);}
 }
@@ -630,13 +798,16 @@ async function loadMaster(){
     const result=await api("/api/master");
     if(sequence!==masterLoadSequence)return;
     state.master=result;
+    if(!state.masterMonth)state.masterMonth=studioToday().slice(0,7);
+    if(!state.masterDate)state.masterDate=studioToday();
+    if(state.public)state.public.bookingWindowDays=result.bookingWindowDays||30;
   }catch(error){
     if(sequence===masterLoadSequence)fail("Не удалось загрузить кабинет: "+error.message);
   }finally{
-    if(sequence===masterLoadSequence){state.loading=false;render();}
+    if(sequence===masterLoadSequence){state.loading=false;render();if(state.page==="calendar"){void loadMasterCalendar();void loadMasterSlots();}}
   }
 }
-async function blockDay(){try{const day=el("blockDay").value, start=el("from").value,end=el("to").value;await api("/api/block",{method:"POST",body:JSON.stringify({day,startTime:start||null,endTime:end||null,reason:el("blockReason").value})});loadMaster()}catch(e){fail("Не удалось закрыть день: "+e.message)}}
+async function blockDay(){try{const day=state.masterDate, start=el("from").value,end=el("to").value;if(!start||!end)return fail("Укажите начало и конец перерыва. Для выходного используйте настройку дня.");await api("/api/block",{method:"POST",body:JSON.stringify({day,startTime:start||null,endTime:end||null,reason:el("blockReason").value})});loadMaster()}catch(e){fail("Не удалось закрыть день: "+e.message)}}
 async function unblock(id){try{await api("/api/unblock",{method:"POST",body:JSON.stringify({id})});loadMaster()}catch(e){fail(e.message)}}
 async function setStatus(id,status){try{await api("/api/status",{method:"POST",body:JSON.stringify({id,status})});loadMaster()}catch(e){fail(e.message)}}
 async function createService(){try{await api("/api/service",{method:"POST",body:JSON.stringify({title:el("newServiceName").value,minutes:Number(el("newServiceMinutes").value),price:Number(el("newServicePrice").value)})});state.public=await api("/api/public");loadMaster()}catch(e){fail(e.message)}}
