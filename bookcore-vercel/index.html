@@ -76,7 +76,17 @@ function humanApiError(error){
 }
 async function api(path,opts){const target=new URL(path,location.origin);const dest=new URL("/api/handler",location.origin);dest.searchParams.set("route",target.pathname);target.searchParams.forEach((v,k)=>dest.searchParams.set(k,v));const r=await fetch(dest.toString(),{cache:"no-store",...opts,headers:{"content-type":"application/json","x-telegram-init-data":initial,...(opts&&opts.headers||{})}});const x=await r.json().catch(()=>null);if(x===null)throw new Error("Сервер временно недоступен. Попробуйте ещё раз.");if(!r.ok)throw new Error(humanApiError(x.error));return x;}
 const isMaster=()=>state.me&&state.me.role==="master";
-async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error(e)}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}if(isMaster())state.loading=true;render();if(isMaster())void loadMaster();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
+async function refreshMasterAccess(){
+  if(!initial)return fail("Откройте BOOKCORE именно через Telegram-бота @Shablon1py_bot.");
+  try{
+    const me=await api("/api/me");
+    state.me=me;
+    state.page=me.role==="master"?"overview":"profile";
+    if(me.role==="master"){state.loading=true;render();await loadMaster();}
+    else{render();fail("Вы вошли как клиент. Telegram ID этого аккаунта: "+(me.telegramId||"не получен")+". Для кабинета мастера нужен ID 1849349451.");}
+  }catch(error){fail("Не удалось проверить доступ: "+error.message);}
+}
+async function init(){try{state.public=await api("/api/public");if(/^#[0-9a-fA-F]{6}$/.test(state.public.accentColor||""))document.documentElement.style.setProperty("--bookcore-brand",state.public.accentColor);if(initial){try{state.me=await api("/api/me")}catch(e){console.error("BOOKCORE_ACCESS_CHECK_FAILED",e);state.me=null;}}}catch(e){state.public={studio:"Студия красоты",masterName:"Ваш мастер",services:[],ready:false}}if(isMaster())state.loading=true;render();if(isMaster())void loadMaster();if(initial&&!isMaster())void loadTelegramAvatar();if(state.me&&state.me.needsName)onboard();}
 function route(p){
   state.page=p;
   if(isMaster()&&["calendar","clients","analytics","settings","overview"].includes(p)){
@@ -299,7 +309,12 @@ if(state.page==="visits"){
   const note=held.length?'<div class="hint" style="margin-bottom:14px">⏳ <b>Отменённая запись исчезнет через 5 минут.</b><br>До окончания отсчёта её прежняя дата и время удерживаются за вами. Нажмите «Вернуть запись», чтобы сохранить своё место без повторного выбора времени. После истечения срока слот станет доступен другим клиентам.</div>':"";
   return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':note+(rows.length?rows.slice().sort((a,b)=>(a.status==="confirmed"?0:1)-(b.status==="confirmed"?0:1)||Date.parse(a.starts_at)-Date.parse(b.starts_at)).map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>'));
 }
-return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>';
+return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>'+
+'<div class="card" style="margin-top:12px"><h3>Доступ к кабинету мастера</h3>'+
+'<div class="sub">Ваш Telegram ID: <b>'+esc(state.me?.telegramId||"не получен")+'</b></div>'+
+'<div class="sub" style="margin:8px 0">Текущая роль: <b>'+(state.me?.role==="master"?"Мастер":"Клиент")+'</b></div>'+
+'<p class="cap">Мастера BOOKCORE: 1849349451 и 769983100. Войдите с нужного аккаунта Telegram.</p>'+
+'<button class="btn full" onclick="refreshMasterAccess()">Проверить доступ мастера</button></div>';
 }
 function bookingStatusLabel(status){
   return ({confirmed:"Подтверждена",completed:"Завершена",cancelled_by_client:"Отменена вами",cancelled_by_master:"Отменена мастером",no_show:"Не состоялась"})[status]||"Статус уточняется";
