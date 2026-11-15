@@ -23,11 +23,25 @@
 .chip.active,.cal-day.chosen{background:var(--bookcore-brand);border-color:var(--bookcore-brand)}
 .service.selected{border-color:var(--bookcore-brand)}
 .hero{background:linear-gradient(120deg,var(--bookcore-brand),#8f5c79 60%,#d8b5c7)}
+
+/* Master calendar states, with non-color indicators for accessibility */
+.cal-day.state-off{background:#eee9ee;color:#958995;box-shadow:inset 0 0 0 1px #e1d7e0;text-decoration:line-through}
+.cal-day.state-short{background:#fff1d7;color:#80531b;box-shadow:inset 0 0 0 1px #eacb91}
+.cal-day.state-busy{background:#fae3e8;color:#a1445f;box-shadow:inset 0 0 0 1px #e8acbd}
+.cal-day.state-available{background:#e7f4e9;color:#2a7543;box-shadow:inset 0 0 0 1px #bcdcc5}
+.cal-day.state-off:disabled{opacity:1;cursor:not-allowed}
+.cal-day.chosen{background:#583a4f!important;color:#fff!important;text-decoration:none;box-shadow:0 0 0 2px #f3dce9!important}
+.calendar-legend{display:flex;flex-wrap:wrap;gap:8px 13px;margin-top:12px}
+.legend-item{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#795f72}
+.legend-dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+.legend-dot.off{background:#c8bcc8}.legend-dot.short{background:#efc66d}.legend-dot.busy{background:#de96ae}.legend-dot.available{background:#9fd0ac}
+.cal-day .cal-symbol{font-size:9px;position:absolute;right:3px;bottom:1px;line-height:1}
+.cal-day{position:relative}
 </style></head><body><main class="wrap"><div class="top"><div><div class="logo">✦ BOOKCORE</div><div class="tiny">BEAUTY APPOINTMENTS</div></div><div class="circle">✿</div></div><div id="main"><div class="empty">Загружаем студию…</div></div></main><nav id="dock" class="dock"></nav><div id="modalRoot"></div><script>
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[]};
+const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -73,7 +87,7 @@ function route(p){
   }
   render();
   if(p==="visits")void loadBookings();
-  if(p==="booking")void loadWaitlist();
+  if(p==="booking"){void loadWaitlist();void loadCalendarInfo();}
 
 }
 function nav(){const n=isMaster()?[["overview","⌂","Обзор"],["calendar","▦","Календарь"],["clients","♧","Клиенты"],["settings","⚙","Настройки"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
@@ -105,6 +119,7 @@ function chooseService(id){
   state.time="";state.slots=[];state.slotsError="";state.slotsLoading=false;
   render();
   if(state.date&&state.serviceIds.length)void loadSlots();
+  void loadCalendarInfo();
 }
 function studioToday(){
   const tz=state.public?.timezone||"Europe/Moscow";
@@ -141,6 +156,24 @@ function changeMonth(delta){
   if(next<studioToday().slice(0,7)+"-01"||next>studioMaxDate().slice(0,7)+"-01")return;
   state.calendarMonth=next;
   if(rescheduling)renderMoveCalendar();else render();
+  void loadCalendarInfo();
+}
+
+async function loadCalendarInfo(){
+  if(isMaster()||state.page!=="booking"&&!rescheduling)return;
+  const month=visibleMonth().slice(0,7);
+  const ids=rescheduling?rescheduling.serviceIds:state.serviceIds;
+  const key=month+"|"+ids.join(",");
+  const request=++state.calendarRequest;
+  state.calendarInfo=null;
+  try{
+    const result=await api("/api/calendar?month="+encodeURIComponent(month)+"&services="+encodeURIComponent(ids.join(",")));
+    if(request!==state.calendarRequest)return;
+    state.calendarInfo={key,days:result.days||{}};
+    if(rescheduling)renderMoveCalendar();else if(state.page==="booking")render();
+  }catch(error){
+    if(request===state.calendarRequest)console.warn("BOOKCORE_CALENDAR_STATUS_FAILED",error);
+  }
 }
 function calendarMarkup(mode="booking"){
   const month=visibleMonth();
@@ -159,14 +192,24 @@ function calendarMarkup(mode="booking"){
     const enabled=validCalendarDate(date);
     const active=(mode==="move"?rescheduling?.date:state.date)===date;
     const today=date===studioToday();
-    days+='<button type="button" class="cal-day'+(active?" chosen":"")+(today?" today":"")+'"'+
-      (enabled?' onclick="'+(mode==="move"?"selectMoveDate":"selectDate")+'(\''+date+'\')"':' disabled')+
-      ' aria-label="'+esc(date)+'" aria-pressed="'+active+'">'+day+'</button>';
+    const calendar=state.calendarInfo;
+    const expected=month.slice(0,7)+"|"+(mode==="move"&&rescheduling?rescheduling.serviceIds:state.serviceIds).join(",");
+    const item=calendar?.key===expected?calendar.days[date]:null;
+    const status=item?.status||"";
+    const blocked=status==="off";
+    const symbols={off:"×",short:"◐",busy:"•",available:"✓"};
+    const valid=enabled&&!blocked;
+    days+='<button type="button" class="cal-day'+(status?" state-"+status:"")+(active?" chosen":"")+(today?" today":"")+'"'+
+      (valid?' onclick="'+(mode==="move"?"selectMoveDate":"selectDate")+'(\''+date+'\')"':' disabled')+
+      ' aria-label="'+esc(date+(item?" — "+item.label:""))+'" title="'+esc(item?.label||"")+'" aria-pressed="'+active+'">'+day+
+      (status?'<span aria-hidden="true" class="cal-symbol">'+symbols[status]+'</span>':"")+'</button>';
   }
   return '<div class="book-calendar"><div class="cal-header"><button type="button" class="cal-nav" onclick="changeMonth(-1)"'+(previous?"":" disabled")+' aria-label="Предыдущий месяц">‹</button>'+
     '<b>'+esc(title.charAt(0).toUpperCase()+title.slice(1))+'</b>'+
     '<button type="button" class="cal-nav" onclick="changeMonth(1)"'+(next?"":" disabled")+' aria-label="Следующий месяц">›</button></div>'+
-    '<div class="cal-grid">'+week+days+'</div><div class="cal-caption">Выберите день. Доступна запись на ближайшие 45 дней.</div></div>';
+    '<div class="cal-grid">'+week+days+'</div>'+
+    '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Свободно</span><span class="legend-item"><i class="legend-dot short"></i>Сокращённый</span><span class="legend-item"><i class="legend-dot busy"></i>Мест нет</span><span class="legend-item"><i class="legend-dot off"></i>Выходной</span></div>'+
+    '<div class="cal-caption">Цвета обновляются по расписанию мастера и выбранным услугам. Запись на ближайшие 45 дней.</div></div>';
 }
 function slotsMarkup(){
   if(!state.serviceIds.length)return '<p class="cap">Сначала выберите одну или несколько услуг.</p>';
@@ -335,7 +378,7 @@ async function loadSlots(){
   }
 }
 function selectDate(date){
-  if(!validCalendarDate(date))return fail("Дата недоступна. Выберите день в пределах ближайших 45 дней.");
+  if(!validCalendarDate(date)||state.calendarInfo?.days?.[date]?.status==="off")return fail("Мастер не работает в выбранный день. Выберите другую дату.");
   state.date=date;state.calendarMonth=date.slice(0,7)+"-01";
   state.time="";state.slots=[];state.slotsError="";
   if(state.serviceIds.length)void loadSlots();else render();
@@ -397,6 +440,7 @@ function rescheduleForm(id,serviceIds){
   moveRequestSequence++;
   rescheduling={id,serviceIds,date:"",time:""};
   state.calendarMonth=studioToday().slice(0,7)+"-01";
+  void loadCalendarInfo();
   el("modalRoot").innerHTML='<div class="overlay" id="moveOverlay" onclick="if(event.target===this)closeMoveModal()"><div class="modal" role="dialog" aria-modal="true" aria-label="Перенос записи">'+
     '<div class="modal-head"><h2>Перенос записи</h2><p class="sub">Выберите новую дату и свободное время.</p></div>'+
     '<div class="modal-scroll" id="moveScroll"><div id="moveCalendar">'+calendarMarkup("move")+'</div><div class="sub" style="margin:12px 0 8px">Доступное время</div><div id="moveSlots" class="flex" style="margin-top:8px"></div></div>'+
@@ -407,7 +451,7 @@ function renderMoveCalendar(){
   const target=el("moveCalendar");if(target&&rescheduling)target.innerHTML=calendarMarkup("move");
 }
 function selectMoveDate(date){
-  if(!rescheduling||!validCalendarDate(date))return;
+  if(!rescheduling||!validCalendarDate(date)||state.calendarInfo?.days?.[date]?.status==="off")return;
   rescheduling.date=date;rescheduling.time="";renderMoveCalendar();void loadMoveSlots(date);
 }
 async function loadMoveSlots(date){
