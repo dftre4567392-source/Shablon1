@@ -343,7 +343,7 @@ async function sendOnce(key,chat,message,markup){
     s.notification_log=s.notification_log.slice(-3500);
     return true;
   });
-  if(!reserved)return false;
+  if(!reserved)return null;
   const delivered=await notify(chat,message,markup);
   await mutate(s=>{const row=(s.notification_log||[]).find(x=>x.key===key);if(row){row.status=delivered?"sent":"failed";row.updated_at=new Date().toISOString();}return true;});
   return delivered;
@@ -355,23 +355,24 @@ function pendingSoon(b,hours,tolerance=1){
 }
 async function runOperationalNotifications(){
   const {state}=await load(),today=todayInStudio(),summary=state.bookings.filter(x=>x.status==="confirmed"&&studioDayFromInstant(x.starts_at)===today);
-  let sent=0,failed=0;
+  let sent=0,failed=0,skipped=0;
   // At most one daily summary, even if the scheduler retries.
   const overview="☀️ BOOKCORE | Расписание на "+today+"\n\n"+(summary.length?
     summary.slice().sort((a,b)=>a.starts_at.localeCompare(b.starts_at)).map(x=>"• "+prettyDate(x.starts_at)+" — "+x.service_name+" ("+x.name+")").join("\n"):
     "На сегодня записей нет.")+"\n\nВсего: "+summary.length;
-  for(const id of MASTER_IDS){if(await sendOnce(notificationKey("morning",today+":"+id),id,overview))sent++;else failed++;}
+  for(const id of MASTER_IDS){const result=await sendOnce(notificationKey("morning",today+":"+id),id,overview);if(result===true)sent++;else if(result===false)failed++;else skipped++;}
   for(const appointment of state.bookings.filter(x=>x.status==="confirmed"&&x.telegram_id).slice(-350)){
     for(const hours of [24,3]){
       if(!pendingSoon(appointment,hours,1))continue;
       const key=notificationKey("reminder"+hours,appointment.id+":"+appointment.starts_at);
       const text="🔔 BOOKCORE | Напоминание за "+hours+" ч.\n\n"+appointment.service_name+"\n📅 "+prettyDate(appointment.starts_at)+"\n\nЕсли планы изменились, откройте свою запись в приложении.";
-      if(await sendOnce(key,appointment.telegram_id,text,APP_URL?{inline_keyboard:[[{text:"📅 Мои записи",web_app:{url:APP_URL}}]]}:undefined))sent++;else failed++;
+      const result=await sendOnce(key,appointment.telegram_id,text,APP_URL?{inline_keyboard:[[{text:"📅 Мои записи",web_app:{url:APP_URL}}]]}:undefined);if(result===true)sent++;else if(result===false)failed++;else skipped++;
     }
   }
-  return {sent,failed,summaryCount:summary.length};
+  return {sent,failed,skipped,summaryCount:summary.length};
 }
 function waitlistEntry(s,auth,day,serviceIds){
+  if(s.users?.[auth.id]?.bot_started!==true)fail(409,"BOT_NOT_STARTED");
   if(!bookableDate(day))fail(400,"INVALID_DATE");
   const bundle=resolveServices(s,serviceIds);
   if(!bundle)fail(400,"INVALID_SERVICES");
