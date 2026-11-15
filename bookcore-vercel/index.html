@@ -34,6 +34,7 @@ const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
 function fail(msg){alert(msg);}
 const API_ERROR_TEXT={
   TIME_NOT_AVAILABLE:"Это время уже занято. Выберите другое.",
+  BOT_NOT_STARTED:"Для уведомлений листа ожидания сначала откройте @Shablon1py_bot и нажмите Start, затем повторите.",
   NAME_REQUIRED:"Сначала укажите имя в профиле.",
   INVALID_DATE_TIME:"Проверьте выбранную дату и время.",
   INVALID_DATE:"Такой даты не существует.",
@@ -222,7 +223,7 @@ if(state.page==="booking"){
     '<div class="sub" style="margin:15px 0 9px">Свободное время</div>'+
     '<div class="flex" id="slotList">'+slotsMarkup()+'</div>'+
     (state.date&&state.serviceIds.length&&!state.slotsLoading&&!state.slots.length?
-      '<div class="hint" style="margin-top:12px">Нет подходящего времени? Встаньте в лист ожидания — бот сообщит, если освободится окно.<button class="btn line full" style="margin-top:10px" onclick="joinWaitlist()">🔔 Уведомить, когда появится время</button></div>':"")+
+      '<div class="hint" style="margin-top:12px">Нет подходящего времени? Встаньте в лист ожидания — бот сообщит, если освободится окно.<button class="btn line full" style="margin-top:10px" onclick="joinWaitlist()">🔔 Уведомить, когда появится время</button><a class="sub" style="display:block;margin-top:9px" href="https://t.me/Shablon1py_bot?start=waitlist">Если бот ещё не запущен — нажмите Start здесь</a></div>':"")+
     '</div>'+
     (state.waitlist.length?'<div class="card" style="margin-top:12px"><b>Ваш лист ожидания</b>'+state.waitlist.map(w=>'<div class="row" style="margin-top:10px"><div class="sub">'+esc(w.day)+' — '+esc(w.service_name)+'</div><button class="chip" onclick="leaveWaitlist(\''+esc(w.id)+'\')">Убрать</button></div>').join("")+'</div>':"")+
     '<div class="card" style="margin-top:15px"><div class="row"><b>Итого</b><b>'+rub(total.price)+'</b></div>'+
