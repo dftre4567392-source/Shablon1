@@ -41,7 +41,7 @@
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:""};
+const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -87,7 +87,7 @@ function route(p){
   }
   render();
   if(p==="visits")void loadBookings();
-  if(p==="booking"){void loadWaitlist();void loadCalendarInfo();}
+  if(p==="booking"){void loadWaitlist();void loadAvailability();}
 
 }
 function nav(){const n=isMaster()?[["overview","⌂","Обзор"],["calendar","▦","Календарь"],["clients","♧","Клиенты"],["settings","⚙","Настройки"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
@@ -118,8 +118,7 @@ function chooseService(id){
   state.serviceIds=next;
   state.time="";state.slots=[];state.slotsError="";state.slotsLoading=false;state.slotsRequest++;state.availabilityAlert="";
   render();
-  if(state.date&&state.serviceIds.length)void loadSlots();
-  void loadCalendarInfo();
+  void loadAvailability();
 }
 function studioToday(){
   const tz=state.public?.timezone||"Europe/Moscow";
@@ -155,8 +154,7 @@ function changeMonth(delta){
   const next=current.toISOString().slice(0,7)+"-01";
   if(next<studioToday().slice(0,7)+"-01"||next>studioMaxDate().slice(0,7)+"-01")return;
   state.calendarMonth=next;
-  if(rescheduling)renderMoveCalendar();else render();
-  void loadCalendarInfo();
+  if(rescheduling){renderMoveCalendar();void loadCalendarInfo();}else{render();void loadAvailability();}
 }
 
 async function loadCalendarInfo({quiet=false}={}){
@@ -278,7 +276,7 @@ if(state.page==="booking"){
     '<div class="sub">Отметьте одну или несколько процедур. Сумма и время рассчитываются автоматически.</div>'+
     serviceCards()+ '<div class="card" style="margin-top:13px">'+details+'</div>'+
     '<div class="section"><h2>Дата и время</h2></div>'+
-    '<div class="card"><div class="sub">Выберите свободную дату</div>'+calendarMarkup()+
+    '<div class="card"><div class="sub">Выберите свободную дату</div><div id="bookingCalendar">'+calendarMarkup()+'</div>'+
     '<div class="sub" style="margin:15px 0 9px">Свободное время</div>'+
     '<div class="flex" id="slotList">'+slotsMarkup()+'</div>'+selectedTimeDetails()+
     (state.date&&state.serviceIds.length&&!state.slotsLoading&&!state.slots.length?
@@ -377,61 +375,87 @@ function render(){
   nav();
   el("main").innerHTML=isMaster()?masterView():publicView();
 }
-async function loadSlots({quiet=false}={}){
-  const date=state.date,ids=[...state.serviceIds];
-  if(!date||!ids.length){
-    state.slots=[];state.time="";state.slotsLoading=false;state.slotsRequest++;
-    if(!quiet)render();
-    return;
-  }
-  const request=++state.slotsRequest,key=date+"|"+ids.join(",");
-  if(!quiet){state.slotsLoading=true;state.slotsError="";render();}
+// One coherent server snapshot for the calendar and the selected day's slots.
+async function loadAvailability({quiet=false}={}){
+  if(isMaster()||state.page!=="booking"||rescheduling)return;
+  if(quiet&&state.availabilityBusy)return;
+  const month=visibleMonth().slice(0,7),ids=[...state.serviceIds],date=ids.length?state.date:"";
+  const key=month+"|"+ids.join(","),selection=date+"|"+ids.join(",");
+  const request=++state.availabilityRequest;
+  state.availabilityBusy=true;
+  if(!quiet){state.slotsLoading=!!date;state.slotsError="";render();}
   try{
-    const result=await api("/api/slots?date="+encodeURIComponent(date)+"&services="+encodeURIComponent(ids.join(",")));
-    if(request!==state.slotsRequest||state.date+"|"+state.serviceIds.join(",")!==key)return;
-    const newSlots=result.slots||[];
-    const changed=JSON.stringify(newSlots)!==JSON.stringify(state.slots);
-    const taken=!!state.time&&!newSlots.includes(state.time);
-    state.slots=newSlots;
+    const params=new URLSearchParams({month,services:ids.join(",")});
+    if(date)params.set("date",date);
+    const response=await api("/api/availability?"+params.toString());
+    if(request!==state.availabilityRequest||state.page!=="booking"||
+      visibleMonth().slice(0,7)+"|"+state.serviceIds.join(",")!==key||
+      (state.serviceIds.length?state.date:"")+"|"+state.serviceIds.join(",")!==selection)return;
+    const oldSlots=state.slots;
+    const nextSlots=date?response.slots||[]:[];
+    const changed=JSON.stringify(nextSlots)!==JSON.stringify(oldSlots);
+    const taken=!!state.time&&!nextSlots.includes(state.time);
+    const previousCalendar=state.calendarInfo;
+    const days=response.days||{};
+    const calendarChanged=!previousCalendar||previousCalendar.key!==key||
+      JSON.stringify(previousCalendar.days)!==JSON.stringify(days);
+    state.calendarInfo={key,days};
+    state.slots=nextSlots;
+    state.slotsError="";
+    state.slotsLoading=false;
+    state.availabilityUpdatedAt=Date.now();
     if(taken){
       state.time="";
-      state.availabilityAlert="Выбранное время только что заняли или закрыли. Выберите другое свободное окно.";
-    }else if(changed&&quiet){
-      state.availabilityAlert="Свободные часы обновлены автоматически.";
-    }else if(!quiet){
+      state.availabilityAlert="Выбранное время занято. Выберите другое окно.";
+    }else{
       state.availabilityAlert="";
     }
-    state.slotsError="";
-    state.availabilityUpdatedAt=Date.now();
-    if(changed||taken||!quiet){
-      // Render without resetting the calendar or losing other selected services.
+    if(!quiet||taken){
+      // Full rendering is necessary only on explicit selection or when a selected
+      // slot was invalidated; keep the user's scroll position intact.
+      const position=window.scrollY;
       render();
+      if(quiet&&taken)window.scrollTo(0,position);
+    }else{
+      // Avoid re-creating the whole page every few seconds on mobile Telegram.
+      if(changed){
+        const list=el("slotList");
+        if(list)list.innerHTML=slotsMarkup();
+      }
+      if(calendarChanged){
+        const calendar=el("bookingCalendar");
+        if(calendar)calendar.innerHTML=calendarMarkup();
+      }
     }
   }catch(error){
-    if(request!==state.slotsRequest||state.date+"|"+state.serviceIds.join(",")!==key)return;
-    state.slotsError=error.message||"Не удалось проверить свободное время.";
-    if(!quiet)render();
-    else console.warn("BOOKCORE_BACKGROUND_SLOTS_ERROR",error);
-  }finally{
-    if(request===state.slotsRequest&&state.date+"|"+state.serviceIds.join(",")===key){
+    if(request!==state.availabilityRequest)return;
+    if(!quiet){
+      state.slotsError=error.message||"Не удалось обновить расписание.";
       state.slotsLoading=false;
-      if(!quiet)render();
+      render();
+    }else{
+      console.warn("BOOKCORE_AVAILABILITY_REFRESH_FAILED",String(error));
+    }
+  }finally{
+    if(request===state.availabilityRequest){
+      state.availabilityBusy=false;
+      state.slotsLoading=false;
     }
   }
 }
+// Legacy helper remains for calls elsewhere in the UI.
+async function loadSlots(options){return loadAvailability(options||{});}
 async function refreshAvailability(){
-  if(document.visibilityState==="hidden"||state.bookingPending||rescheduling&&state.page!=="booking")return;
-  if(state.page!=="booking"||isMaster())return;
-  if(state.date&&state.serviceIds.length)await loadSlots({quiet:true});
-  await loadCalendarInfo({quiet:true});
+  if(document.visibilityState==="hidden"||state.bookingPending||isMaster())return;
+  if(state.page==="booking"&&!rescheduling)await loadAvailability({quiet:true});
 }
 function selectDate(date){
   if(!validCalendarDate(date)||state.calendarInfo?.days?.[date]?.status==="off")return fail("Мастер не работает в выбранный день. Выберите другую дату.");
   state.date=date;state.calendarMonth=date.slice(0,7)+"-01";
   state.time="";state.slots=[];state.slotsError="";state.slotsRequest++;state.availabilityAlert="";
-  if(state.serviceIds.length)void loadSlots();else render();
+  render();void loadAvailability();
 }
-function selectTime(time){if(!state.slots.includes(time))return;state.time=time;render();}
+function selectTime(time){if(!state.slots.includes(time))return;state.time=time;state.availabilityAlert="";render();}
 async function book(){
   if(state.bookingPending||!state.serviceIds.length||!validCalendarDate(state.date)||!state.slots.includes(state.time)){
     return fail("Выберите услуги, доступную дату и свободное время.");
@@ -442,7 +466,7 @@ async function book(){
     state.time="";state.slots=[];state.date="";
     fail("Вы успешно записаны!");
     route("visits");
-  }catch(error){fail("Не удалось записаться: "+error.message);if(state.date){state.availabilityAlert="Проверяем актуальные свободные часы — выбранное время мог занять другой клиент.";void loadSlots();void loadCalendarInfo({quiet:true});}}
+  }catch(error){fail("Не удалось записаться: "+error.message);if(state.date){state.time="";state.availabilityAlert="";void loadAvailability();}}
   finally{state.bookingPending=false;render();}
 }
 async function loadWaitlist(){
@@ -561,7 +585,7 @@ async function createService(){try{await api("/api/service",{method:"POST",body:
 function onboard(){if(!initial){fail("Откройте приложение через Telegram-бота");return;}el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><div style="font-size:34px;text-align:center">✿</div><h2 style="text-align:center">Давайте знакомиться!</h2><p class="sub" style="text-align:center">Укажите ваше настоящее имя, чтобы мастер знал, кого ожидать на процедуре.</p><input class="field" id="newName" maxlength="50" placeholder="Например, Анастасия"/><button class="btn full" onclick="saveName()">Продолжить</button><p class="cap" style="text-align:center">Без паспортов и данных банковских карт</p></div></div>';}
 async function saveName(){const name=el("newName").value.trim();if(name.length<2)return fail("Введите имя, не менее двух символов");try{await api("/api/name",{method:"POST",body:JSON.stringify({name})});state.me.clientName=name;state.me.needsName=false;el("modalRoot").innerHTML="";render()}catch(e){fail(e.message)}}
 setInterval(updateRestoreCountdowns,1000);
-setInterval(()=>{void refreshAvailability()},10000);
+setInterval(()=>{void refreshAvailability()},11000+Math.floor(Math.random()*4000));
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void refreshAvailability();});
 window.addEventListener("focus",()=>{void refreshAvailability();});
 init();
