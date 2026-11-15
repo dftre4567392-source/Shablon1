@@ -234,7 +234,7 @@ if(state.page==="visits"){
   const rows=state.bookings.filter(b=>b.status!=="cancelled_by_client"||(b.restore_until&&Date.parse(b.restore_until)>Date.now()));
   const held=rows.filter(b=>b.status==="cancelled_by_client");
   const note=held.length?'<div class="hint" style="margin-bottom:14px">⏳ <b>Отменённая запись исчезнет через 5 минут.</b><br>До окончания отсчёта её прежняя дата и время удерживаются за вами. Нажмите «Вернуть запись», чтобы сохранить своё место без повторного выбора времени. После истечения срока слот станет доступен другим клиентам.</div>':"";
-  return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':note+(rows.length?rows.slice().sort((a,b)=>(a.status==="confirmed"?0:1)-(b.status==="confirmed"?0:1)||Date.parse(a.starts_at)-Date.parse(b.starts_at)).map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\\'booking\\')">Записаться</button></div>'));
+  return '<div class="section"><h2>Мои записи</h2></div>'+(!initial?'<div class="empty">Откройте приложение в Telegram</div>':note+(rows.length?rows.slice().sort((a,b)=>(a.status==="confirmed"?0:1)-(b.status==="confirmed"?0:1)||Date.parse(a.starts_at)-Date.parse(b.starts_at)).map(bookingCard).join(""):'<div class="empty">Пока нет записей<br><button style="margin-top:15px" class="btn" onclick="route(\'booking\')">Записаться</button></div>'));
 }
 return '<div class="section"><h2>Мой профиль</h2></div><div class="card"><div class="row"><div class="circle profile-avatar">'+profileAvatar()+'</div><div style="flex:1"><b>'+esc(state.me&&state.me.clientName||"Гость")+'</b><div class="sub">Ваш профиль записи</div></div></div><div class="line"></div><button class="btn line full" onclick="onboard()">Изменить имя</button></div>';
 }
@@ -276,7 +276,7 @@ function countdownLabel(ms){return String(Math.floor(ms/60000)).padStart(2,"0")+
 function updateRestoreCountdowns(){
   if(state.page!=="visits"||isMaster())return;
   const expired=state.bookings.some(b=>b.status==="cancelled_by_client"&&b.restore_until&&Date.parse(b.restore_until)<=Date.now());
-  if(expired){render();return;}
+  if(expired){state.bookings=state.bookings.filter(b=>b.status!=="cancelled_by_client"||!b.restore_until||Date.parse(b.restore_until)>Date.now());render();return;}
   document.querySelectorAll(".restore-countdown").forEach(element=>{
     const remaining=Math.max(0,Date.parse(element.dataset.expiry)-Date.now());
     element.textContent=countdownLabel(remaining);
