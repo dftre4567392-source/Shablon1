@@ -493,12 +493,77 @@ function filterMasterClients(){
  node.hidden=!node.getAttribute("data-master-client").toLocaleLowerCase("ru").includes(q);
  });
 }
-async function saveExistingService(id){
+
+async function photoAsJpeg(file){
+  if(!file||!/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type||""))throw new Error("Выберите фотографию JPEG, PNG, WebP или HEIC.");
+  if(file.size>25*1024*1024)throw new Error("Исходная фотография слишком большая (максимум 25 МБ).");
+  let image,objectUrl;
+  try{
+    objectUrl=URL.createObjectURL(file);
+    image=await new Promise((resolve,reject)=>{
+      const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(new Error("Не удалось открыть фото. Используйте JPEG, PNG или WebP."));
+      img.src=objectUrl;
+    });
+    const canvas=document.createElement("canvas"),max=1600;
+    const factor=Math.min(1,max/Math.max(image.naturalWidth,image.naturalHeight));
+    canvas.width=Math.max(1,Math.round(image.naturalWidth*factor));
+    canvas.height=Math.max(1,Math.round(image.naturalHeight*factor));
+    const context=canvas.getContext("2d");if(!context)throw new Error("Обработка фотографий недоступна.");
+    context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);
+    context.drawImage(image,0,0,canvas.width,canvas.height);
+    let blob;
+    for(const quality of [0.85,0.7,0.55]){
+      blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",quality));
+      if(blob&&blob.size<=2_000_000)break;
+    }
+    if(!blob||blob.size>2_000_000)throw new Error("Не удалось уменьшить фотографию до допустимого размера.");
+    const bytes=new Uint8Array(await blob.arrayBuffer());
+    let binary="";
+    for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+    return {mime:"image/jpeg",data:btoa(binary)};
+  }finally{if(objectUrl)URL.revokeObjectURL(objectUrl);}
+}
+async function uploadManagedPhoto(file){
+  const body=await photoAsJpeg(file);
+  const result=await api("/api/master/photo",{method:"POST",body:JSON.stringify(body)});
+  if(!result?.url)throw new Error("Сервер не вернул адрес фотографии.");
+  return result.url;
+}
+async function uploadServiceFiles(id,input){
+  const files=Array.from(input?.files||[]);
+  if(!files.length)return;
+  const sourceField=el("editPhotos"+id),status=el("photoStatus"+id);
+  const current=photoUrlsFromInput("editPhotos"+id);
+  if(current.length+files.length>5){fail("Можно разместить не более пяти фотографий для одной услуги.");input.value="";return;}
+  input.disabled=true;
+  try{
+    for(let i=0;i<files.length;i++){
+      if(status)status.textContent="Загружаем фото "+(i+1)+" из "+files.length+"…";
+      const url=await uploadManagedPhoto(files[i]);
+      current.push(url);
+      if(sourceField)sourceField.value=current.join("\n");
+    }
+    if(status)status.textContent="Сохраняем фотографии…";
+    await saveExistingService(id,{quiet:true});
+    fail("Фотографии добавлены и видны клиентам.");
+  }catch(error){
+    if(status)status.textContent="Не удалось загрузить: "+error.message;
+    fail("Ошибка загрузки: "+error.message+". Уже загруженные ссылки оставлены в поле — нажмите «Сохранить».");
+  }finally{input.disabled=false;input.value="";}
+}
+async function removeServicePhoto(id,index){
+  const field=el("editPhotos"+id),values=photoUrlsFromInput("editPhotos"+id);
+  if(index<0||index>=values.length)return;
+  values.splice(index,1);
+  if(field)field.value=values.join("\n");
+  await saveExistingService(id,{quiet:true});
+}
+async function saveExistingService(id,{quiet=false}={}){
  const data={id,title:el("editTitle"+id).value,description:el("editDesc"+id).value,
  details:el("editDetails"+id)?.value||"",photos:photoUrlsFromInput("editPhotos"+id),
  minutes:Number(el("editMinutes"+id).value),price:Number(el("editPrice"+id).value)};
  try{await api("/api/service",{method:"POST",body:JSON.stringify(data)});
- state.public=await api("/api/public");await loadMaster();fail("Услуга обновлена.");}
+ state.public=await api("/api/public");await loadMaster();if(!quiet)fail("Услуга обновлена.");}
  catch(e){fail("Не удалось сохранить: "+e.message)}
 }
 
@@ -676,9 +741,12 @@ return '<div class="section"><h2>Услуги и настройки</h2></div>'+
   '<input id="newServiceName" class="field" placeholder="Название услуги" maxlength="150"/>'+
   '<input id="newServiceDescription" class="field" placeholder="Коротко об услуге" maxlength="150"/>'+
   '<textarea id="newServiceDetails" class="field" rows="4" maxlength="2500" placeholder="Что входит в процедуру, как подготовиться и что будет после"></textarea>'+
-  '<label class="cap" for="newServicePhotos">Фотографии работ: до 5 ссылок, каждая с новой строки</label>'+
-  '<textarea id="newServicePhotos" class="field" rows="3" placeholder="https://.../foto1.jpg"></textarea>'+
-  '<p class="cap">Используйте прямые HTTPS-ссылки на фотографии, которыми имеете право пользоваться. Если ссылок пока нет, оставьте поле пустым.</p>'+
+  '<label class="cap" for="newServiceFile">Фотографии прямо с телефона (до пяти)</label>'+
+  '<input id="newServiceFile" class="field" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple/>'+
+  '<p class="cap">Выберите фотографии из галереи. Перед сохранением они автоматически уменьшаются.</p>'+
+  '<label class="cap" for="newServicePhotos">Либо ссылки на фотографии (необязательно)</label>'+
+  '<textarea id="newServicePhotos" class="field" rows="2" placeholder="https://.../foto1.jpg"></textarea>'+
+  '<div id="newServiceStatus" class="sub" aria-live="polite"></div>'+
   '<div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" max="600" value="120" placeholder="Минут"/>'+
   '<input id="newServicePrice" class="field" type="number" min="0" max="1000000" value="1700" placeholder="Цена ₽"/></div>'+
   '<button class="btn full" onclick="createService()">Добавить услугу</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить существующие услуги</h2></div>'+
@@ -686,9 +754,13 @@ return '<div class="section"><h2>Услуги и настройки</h2></div>'+
  '<label class="cap">Название</label><input id="editTitle'+x.id+'" class="field" value="'+esc(x.title)+'"/>'+
  '<label class="cap">Краткое описание</label><input id="editDesc'+x.id+'" class="field" value="'+esc(x.description||"")+'" maxlength="150"/>'+
  '<label class="cap">Подробное описание: что входит, подготовка, результат</label><textarea id="editDetails'+x.id+'" rows="4" maxlength="2500" class="field">'+esc(x.details||"")+'</textarea>'+
- '<label class="cap">Фотографии (до 5 HTTPS-ссылок, каждая с новой строки)</label>'+
- '<textarea id="editPhotos'+x.id+'" rows="4" class="field">'+esc((x.photos||[]).join("\n"))+'</textarea>'+
- ((x.photos||[]).length?'<div class="photo-gallery">'+(x.photos||[]).map(url=>photoMarkup(url,x.title,"")).join("")+'</div>':"")+
+ '<label class="cap">Добавить фотографии с телефона (до пяти)</label>'+
+ '<input class="field" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple onchange="uploadServiceFiles('+x.id+',this)"/>'+
+ '<div class="sub" id="photoStatus'+x.id+'" aria-live="polite">Фотографии сохраняются сразу после загрузки.</div>'+
+ '<label class="cap">Дополнительно: ссылки на фотографии</label>'+
+ '<textarea id="editPhotos'+x.id+'" rows="3" class="field">'+esc((x.photoSources||x.photos||[]).join("\n"))+'</textarea>'+
+ ((x.photos||[]).length?'<div class="photo-gallery">'+(x.photos||[]).map((url,i)=>
+ '<div>'+photoMarkup(url,x.title,"")+'<button type="button" class="service-more" style="margin-top:5px" onclick="removeServicePhoto('+x.id+','+i+')">Убрать фото</button></div>').join("")+'</div>':"")+
  '<div class="grid"><div><label class="cap">Сколько минут</label><input id="editMinutes'+x.id+'" class="field" type="number" min="15" max="600" value="'+x.minutes+'"/></div>'+
  '<div><label class="cap">Стоимость, ₽</label><input id="editPrice'+x.id+'" class="field" type="number" min="0" max="1000000" value="'+x.price+'"/></div></div>'+
  '<button class="btn line full" onclick="saveExistingService('+x.id+')">Сохранить</button></div>').join("")+
@@ -929,7 +1001,29 @@ async function loadMaster(){
 async function blockDay(){try{const day=state.masterDate, start=el("from").value,end=el("to").value;if(!start||!end)return fail("Укажите начало и конец перерыва. Для выходного используйте настройку дня.");await api("/api/block",{method:"POST",body:JSON.stringify({day,startTime:start||null,endTime:end||null,reason:el("blockReason").value})});loadMaster()}catch(e){fail("Не удалось закрыть день: "+e.message)}}
 async function unblock(id){try{await api("/api/unblock",{method:"POST",body:JSON.stringify({id})});loadMaster()}catch(e){fail(e.message)}}
 async function setStatus(id,status){try{await api("/api/status",{method:"POST",body:JSON.stringify({id,status})});loadMaster()}catch(e){fail(e.message)}}
-async function createService(){try{await api("/api/service",{method:"POST",body:JSON.stringify({title:el("newServiceName").value,description:el("newServiceDescription")?.value||"",details:el("newServiceDetails")?.value||"",photos:photoUrlsFromInput("newServicePhotos"),minutes:Number(el("newServiceMinutes").value),price:Number(el("newServicePrice").value)})});state.public=await api("/api/public");loadMaster()}catch(e){fail(e.message)}}
+async function createService(){
+ const name=el("newServiceName").value.trim(),description=el("newServiceDescription")?.value||"",
+   details=el("newServiceDetails")?.value||"",links=photoUrlsFromInput("newServicePhotos"),
+   files=Array.from(el("newServiceFile")?.files||[]),
+   minutes=Number(el("newServiceMinutes").value),price=Number(el("newServicePrice").value);
+ if(files.length+links.length>5)return fail("Для одной услуги можно выбрать не более пяти фотографий.");
+ const status=el("newServiceStatus"),button=el("newServiceFile");
+ if(button)button.disabled=true;
+ try{
+   if(status)status.textContent="Создаём услугу…";
+   const created=await api("/api/service",{method:"POST",body:JSON.stringify({title:name,description,details,photos:links,minutes,price})});
+   if(files.length){
+     for(let i=0;i<files.length;i++){
+       if(status)status.textContent="Загружаем фото "+(i+1)+" из "+files.length+"…";
+       links.push(await uploadManagedPhoto(files[i]));
+     }
+     if(status)status.textContent="Добавляем фотографии в услугу…";
+     await api("/api/service",{method:"POST",body:JSON.stringify({id:created.id,title:name,description,details,photos:links,minutes,price})});
+   }
+   state.public=await api("/api/public");await loadMaster();fail("Услуга создана.");
+ }catch(e){if(status)status.textContent="Не удалось завершить: "+e.message;fail("Ошибка создания услуги: "+e.message)}
+ finally{if(button)button.disabled=false;}
+}
 function onboard(){if(!initial){fail("Откройте приложение через Telegram-бота");return;}el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><div style="font-size:34px;text-align:center">✿</div><h2 style="text-align:center">Давайте знакомиться!</h2><p class="sub" style="text-align:center">Укажите ваше настоящее имя, чтобы мастер знал, кого ожидать на процедуре.</p><input class="field" id="newName" maxlength="50" placeholder="Например, Анастасия"/><button class="btn full" onclick="saveName()">Продолжить</button><p class="cap" style="text-align:center">Без паспортов и данных банковских карт</p></div></div>';}
 async function saveName(){const name=el("newName").value.trim();if(name.length<2)return fail("Введите имя, не менее двух символов");try{await api("/api/name",{method:"POST",body:JSON.stringify({name})});state.me.clientName=name;state.me.needsName=false;el("modalRoot").innerHTML="";render()}catch(e){fail(e.message)}}
 setInterval(updateRestoreCountdowns,1000);
