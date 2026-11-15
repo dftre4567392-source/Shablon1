@@ -278,7 +278,7 @@ function rebookFromHistory(id){
 function bookingCard(b){
   const timezone=state.public?.timezone||"Europe/Moscow";
   const date=new Date(b.starts_at).toLocaleString("ru-RU",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit",timeZone:timezone});
-  const id=JSON.stringify(String(b.id));
+  const id=String.fromCharCode(39)+String(b.id).replace(/[^a-zA-Z0-9_-]/g,"")+String.fromCharCode(39);
   const isActive=b.status==="confirmed";
   const isPast=Number.isFinite(Date.parse(b.starts_at))&&Date.parse(b.starts_at)<Date.now();
   const isLocked=!isMaster()&&Date.parse(b.starts_at)-Date.now()<12*3600000;
