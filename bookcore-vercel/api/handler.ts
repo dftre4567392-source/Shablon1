@@ -437,6 +437,32 @@ function crmStats(state){
   });
 }
 
+
+function masterAnalytics(s){
+  const today=todayInStudio(),month=today.slice(0,7);
+  const active=s.bookings.filter(b=>b.status==="confirmed");
+  const done=s.bookings.filter(b=>b.status==="completed");
+  const cancelled=s.bookings.filter(b=>String(b.status).startsWith("cancelled"));
+  const thisMonth=done.filter(b=>studioDayFromInstant(b.starts_at).slice(0,7)===month);
+  const popular=new Map();
+  for(const b of done){
+    const x=popular.get(b.service_name)||{title:b.service_name,visits:0,amount:0};
+    x.visits++;x.amount+=Number(b.price||0);popular.set(b.service_name,x);
+  }
+  const days=[];
+  for(let i=6;i>=0;i--){
+    const date=dateOffset(today,-i),entries=s.bookings.filter(b=>studioDayFromInstant(b.starts_at)===date);
+    days.push({date,confirmed:entries.filter(b=>b.status==="confirmed").length,
+      completed:entries.filter(b=>b.status==="completed").length});
+  }
+  return {today,month,active:active.length,todayBookings:active.filter(b=>studioDayFromInstant(b.starts_at)===today).length,
+    completed:done.length,cancelled:cancelled.length,completedThisMonth:thisMonth.length,
+    completedValueThisMonth:thisMonth.reduce((sum,b)=>sum+Number(b.price||0),0),
+    uniqueCompletedClients:new Set(done.map(b=>b.telegram_id).filter(Boolean)).size,
+    regularClients:crmStats(s).filter(u=>u.returning).length,
+    popularServices:[...popular.values()].sort((a,b)=>b.visits-a.visits).slice(0,8),
+    recentDays:days};
+}
 async function body(req){try{return await req.json()}catch{return {};}}
 function secureUser(a){return {role:a.master?"master":"client"};}
 function listBooking(b){return {id:b.id,name:b.name,service_id:b.service_id,service_ids:b.service_ids||[b.service_id],service_name:b.service_name,price:b.price,starts_at:b.starts_at,status:b.status,...(b.restore_until&&b.status==="cancelled_by_client"?{restore_until:b.restore_until}:{}), ...(b.telegram_id?{telegram_id:b.telegram_id}:{})};}
@@ -679,7 +705,7 @@ async function execute(req){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
       blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.filter(s=>s.active),
-      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length});
+      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state)});
   }
   if(route==="/api/block"&&method==="POST"){
     const b=await body(req),day=String(b.day||""),start=b.startTime||null,end=b.endTime||null;
