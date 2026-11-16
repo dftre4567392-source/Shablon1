@@ -145,7 +145,7 @@ test("13 cancellation requires owner/master and reopens availability",async()=>{
   assert.equal((await h.post("/api/cancel",{id},ids.b)).status,403);
   assert.equal((await h.post("/api/cancel",{id},ids.a)).status,200);
   assert.equal((await h.post("/api/cancel",{id},ids.a)).status,409);
-  assert.ok((await free(h,day)).includes(time));
+  assert.ok(!(await free(h,day)).includes(time),"Cancelled client slot must remain reserved for 5-minute restoration");
 });
 test("14 reschedule preserves multi-service total and protects ownership",async()=>{
   const h=createHarness();await named(h,ids.a);
@@ -177,7 +177,7 @@ test("16 master blocks full day, cannot block occupied day, then unblocks",async
   const booked=await bookTwo(h,ids.a,day,time);
   assert.equal((await h.post("/api/block",{day,reason:"Отпуск"},ids.a)).status,403);
   assert.equal((await h.post("/api/block",{day,reason:"Отпуск"},ids.master)).status,409);
-  assert.equal((await h.post("/api/cancel",{id:booked.body.id},ids.a)).status,200);
+  assert.equal((await h.post("/api/cancel",{id:booked.body.id,reason:"Мастер закрывает этот день"},ids.master)).status,200);
   const blocked=await h.post("/api/block",{day,reason:"Отпуск"},ids.master);
   assert.equal(blocked.status,200);
   assert.equal((await free(h,day)).length,0);
@@ -265,7 +265,7 @@ test("24 late client cancellation/reschedule is blocked",async()=>{
   });
   assert.equal((await h.post("/api/cancel",{id},ids.a)).status,409);
   assert.equal((await h.post("/api/reschedule",{id,date:h.openDay({min:15,max:30}),time:"10:00"},ids.a)).status,409);
-  assert.equal((await h.post("/api/cancel",{id},ids.master)).status,200);
+  assert.equal((await h.post("/api/cancel",{id,reason:"Отмена по решению мастера"},ids.master)).status,200);
 });
 
 test("25 studio timezone handles Barnaul, Moscow and Amsterdam correctly",()=>{

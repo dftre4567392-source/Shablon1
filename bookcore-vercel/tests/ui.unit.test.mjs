@@ -20,14 +20,14 @@ function environment({now="2026-11-13T10:00:00Z",role="client",ready=true}={}){
   }
   const requests=[];
   const context={
-    window:{Telegram:{WebApp:{initData:"test-init-data",ready(){},expand(){}}}},
-    document:{getElementById:element},location:{origin:"https://bookcore-test.invalid"},
-    console,URL,Intl,Date:TestDate,Blob,TextDecoder,TextEncoder,AbortSignal,
-    setTimeout,clearTimeout,alert:()=>{},confirm:()=>true,
+    window:{Telegram:{WebApp:{initData:"test-init-data",ready(){},expand(){}}},addEventListener(){},matchMedia:()=>({matches:false})},
+    document:{getElementById:element,addEventListener(){},visibilityState:"visible"},location:{origin:"https://bookcore-test.invalid"},
+    console,URL,URLSearchParams,Intl,Date:TestDate,Blob,TextDecoder,TextEncoder,AbortSignal,
+    setTimeout,clearTimeout,setInterval:()=>0,clearInterval:()=>{},alert:()=>{},confirm:()=>true,
     fetch:async(url,options)=>{
       requests.push({url:String(url),options});
       const route=new URL(String(url)).searchParams.get("route");
-      const response=route==="/api/slots"?{slots:["10:00","10:15"]}:route==="/api/public"?{ready:true,services:[]}:route==="/api/me"?{role:"client",needsName:false}:
+      const response=["/api/slots","/api/availability"].includes(route)?{slots:["10:00","10:15"],days:{}}:route==="/api/public"?{ready:true,services:[]}:route==="/api/me"?{role:"client",needsName:false}:
         {ok:true,bookings:[],blocks:[],schedule:[],clients:[],services:[]};
       return new Response(JSON.stringify(response),{status:200,headers:{"content-type":"application/json"}});
     }
@@ -77,10 +77,7 @@ test("UI-04 year boundary December -> January without visible year",()=>{
   assert.ok(january.includes("2027-01-10"));
   assert.equal(b.run('validCalendarDate("2027-01-10")'),true);
   b.run("changeMonth(1)");
-  const february=b.run("calendarMarkup()");
-  assert.match(february,/Февраль<\/b>/);
-  b.run("changeMonth(1)");
-  assert.match(b.run("calendarMarkup()"),/Февраль<\/b>/,"cannot scroll beyond booking window");
+  assert.match(b.run("calendarMarkup()"),/Январь<\/b>/,"cannot scroll beyond January booking window");
 });
 test("UI-05 multi-service selection and deselection preserves totals",()=>{
   const b=environment();
@@ -141,7 +138,7 @@ test("UI-10 client and master navigation still render without errors",()=>{
 });
 test("UI-11 selecting a day triggers combined service request",async()=>{
   const b=environment();
-  b.run("chooseService(1);chooseService(4);selectDate('2026-11-21');");
+  b.run("state.page='booking';chooseService(1);chooseService(4);selectDate('2026-11-21');");
   await new Promise(resolve=>setTimeout(resolve,10));
   assert.ok(b.requests.some(x=>x.url.includes("services=1%2C4")));
   assert.equal(b.run("state.slots.length"),2);

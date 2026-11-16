@@ -81,7 +81,7 @@ jobs:
           console.log("SERVER_REGRESSION_PASS: dates, 2-service totals, conflicts, invalid dates, 45-day limit");
           
           const html=fs.readFileSync("/tmp/bookcore-browser.js","utf8").replace(/\ninit\(\);\s*$/,"");
-          const browser={window:{Telegram:null},document:{getElementById:()=>({innerHTML:""})},location:{origin:"https://bookcore-telegram.vercel.app"},console,Intl,Date,URL,Blob,alert:()=>{},fetch:async()=>({ok:true,json:async()=>({})})};
+          const browser={window:{Telegram:null,addEventListener(){},matchMedia:()=>({matches:false})},document:{getElementById:()=>({innerHTML:""}),addEventListener(){},visibilityState:"visible"},location:{origin:"https://bookcore-telegram.vercel.app"},console,Intl,Date,URL,Blob,setInterval:()=>0,clearInterval:()=>{},setTimeout,clearTimeout,alert:()=>{},fetch:async()=>({ok:true,json:async()=>({})})};
           vm.createContext(browser);vm.runInContext(html,browser);
           vm.runInContext('state.public={timezone:"Europe/Moscow",ready:true,masterName:"Мастер",studio:"Студия",services:[{id:1,active:true,title:"Услуга A",minutes:120,price:1700},{id:4,active:true,title:"Услуга B",minutes:75,price:1600}]}',browser);
           vm.runInContext("chooseService(1);chooseService(4);",browser);

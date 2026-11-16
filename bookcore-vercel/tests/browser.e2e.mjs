@@ -35,8 +35,16 @@ async function navigate(page,label){
 async function pickDate(page,selector,date){
   const month=date.slice(0,7);
   for(let i=0;i<3;i++){
-    const desired=page.locator(selector+' .cal-day[aria-label="'+date+'"]');
-    if(await desired.count()>0&&await desired.isEnabled()){await desired.click();return;}
+    const desired=page.locator(selector+' .cal-day[aria-label^="'+date+'"]').first();
+    if(await desired.count()>0&&await desired.isEnabled()){
+      // Availability refresh can re-render a button between locator lookup and click.
+      const clicked=await page.evaluate(({selector,date})=>{
+        const button=document.querySelector(selector+' .cal-day[aria-label^="'+date+'"]');
+        if(!button||button.disabled)return false;
+        button.click();return true;
+      },{selector,date});
+      if(clicked)return;
+    }
     const next=page.locator(selector+" .cal-nav").last();
     assert.equal(await next.isEnabled(),true,"Calendar cannot reach "+month);
     await next.click();
@@ -93,12 +101,14 @@ test("Real Chromium mobile: client + master full booking scenario", {timeout:110
     const master=await createContext(browser,ids.master);errors.push(master.errors);
     await master.page.getByRole("heading",{name:"Кабинет мастера"}).waitFor();
     await navigate(master.page,"Календарь");
+    await master.page.evaluate(day=>selectMasterDay(day),d);
+    await master.page.locator("details.master-settings").filter({hasText:"Записать клиента вручную"}).locator("summary").click();
     await master.page.locator("#manualName").fill("Тестовый посетитель");
     await master.page.locator("#manualService").selectOption("5");
-    await master.page.locator("#manualDate").fill(d);
-    await master.page.locator("#manualTime").fill("15:00");
+    await master.page.locator("#masterTimeChoices button.chip").first().waitFor({timeout:10000});
+    await master.page.locator("#masterTimeChoices button.chip").first().click();
     await master.page.screenshot({path:new URL("master-calendar.png",screenshots).pathname,fullPage:true});
-    await master.page.getByRole("button",{name:"Добавить запись"}).click();
+    await master.page.getByRole("button",{name:"Записать клиента",exact:true}).click();
     await master.page.getByText("Тестовый посетитель").waitFor();
     await noHorizontalOverflow(master.page);
     assert.equal(master.errors.length,0,"Master page errors: "+master.errors.join("; "));
@@ -157,14 +167,14 @@ test("Adversarial Chromium: bad input, rapid navigation, stale requests and resp
   // Delayed earlier slots must not overwrite the selected latest date.
   const actual=await p.evaluate(async()=>{
     const original=window.api,requests=[];
-    window.api=()=>new Promise(resolve=>requests.push(resolve));
+    window.api=path=>String(path).startsWith("/api/calendar")?Promise.resolve({days:{}}):new Promise(resolve=>requests.push(resolve));
     const base=new Date(studioToday()+"T00:00:00Z");
     const day=n=>new Date(base.getTime()+n*86400000).toISOString().slice(0,10);
     rescheduleForm("fake-booking",[1]);selectMoveDate(day(6));selectMoveDate(day(7));
     requests[1]({slots:["15:00"]});
-    await new Promise(resolve=>setTimeout(resolve,10));
+    await new Promise(resolve=>setTimeout(resolve,50));
     requests[0]({slots:["10:00"]});
-    await new Promise(resolve=>setTimeout(resolve,10));
+    await new Promise(resolve=>setTimeout(resolve,50));
     const result=document.getElementById("moveSlots").innerText;
     closeMoveModal();window.api=original;return result;
   });
@@ -177,12 +187,13 @@ test("Adversarial Chromium: bad input, rapid navigation, stale requests and resp
   const master=await createContext(browser,ids.master);
   await master.page.getByRole("heading",{name:"Кабинет мастера"}).waitFor();
   await navigate(master.page,"Календарь");
+  await master.page.locator("details.master-settings").filter({hasText:"Записать клиента вручную"}).locator("summary").click();
   await master.page.locator("#manualName").fill("Невидимый тест");
   await master.page.locator("#manualService").selectOption("5");
-  await master.page.locator("#manualDate").fill("9999-12-31");
-  await master.page.locator("#manualTime").fill("10:00");
-  await master.page.getByRole("button",{name:"Добавить запись"}).click();
-  await master.page.waitForTimeout(150);
+  // Manual date/time are no longer free text fields. Invalid dates cannot be entered in the master UI.
+  assert.equal(await master.page.locator('#manualDate').getAttribute("type"),"hidden");
+  assert.equal(await master.page.locator('#manualTime').getAttribute("type"),"hidden");
+  assert.equal(await master.page.locator('.cal-day[aria-label^="9999-12-31"]').count(),0);
   assert.equal(master.errors.length,0,master.errors.join("; "));
   await master.page.screenshot({path:new URL("master-invalid-date.png",screenshots).pathname,fullPage:true});
   await master.context.close();
