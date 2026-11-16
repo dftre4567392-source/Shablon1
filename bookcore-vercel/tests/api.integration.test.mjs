@@ -437,3 +437,63 @@ test("38 legacy bookings without service_minutes keep their recorded duration on
   assert.equal((Date.parse(entry.busy_until)-Date.parse(entry.starts_at))/60000,210);
   assert.equal(entry.service_minutes,195);
 });
+
+
+test("39 fixed two-week booking period remains stable until its boundary",async()=>{
+  const h=createHarness();
+  const set=await h.post("/api/master/window",{days:14},ids.master);
+  assert.equal(set.status,200,JSON.stringify(set.body));
+  assert.equal(set.body.bookingRange.days,14);
+  const original=h.readStore();
+  assert.equal(original.booking_window_anchor,h.today());
+  const start=h.today(),end=h.addDays(13);
+  assert.equal(set.body.bookingRange.start,start);
+  assert.equal(set.body.bookingRange.end,end);
+  assert.equal(vm.runInContext("bookableDate("+JSON.stringify(end)+",__saved)",Object.assign(h.sandbox,{__saved:original})),true);
+  assert.equal(vm.runInContext("bookableDate("+JSON.stringify(h.addDays(14))+",__saved)",h.sandbox),false);
+  const snapshot=(offset)=>{
+    const at=h.addDays(offset)+"T12:00:00Z";
+    h.sandbox.Date=class FixedDate extends Date{
+      constructor(...args){super(...(args.length?args:[at]));}
+      static now(){return new Date(at).getTime();}
+    };
+    return vm.runInContext("bookingRange(__saved)",h.sandbox);
+  };
+  assert.equal(snapshot(6).start,start,"Mid-period day must not move the opening date");
+  assert.equal(snapshot(6).end,end,"Mid-period day must not move the closing date");
+  assert.equal(snapshot(14).start,h.addDays(14),"Next period opens at boundary");
+  assert.equal(snapshot(14).end,h.addDays(27));
+});
+test("40 weekly day setup saves day overrides and lunch together",async()=>{
+  const h=createHarness();
+  const selected=h.openDay({min:7,max:14});
+  const result=await h.post("/api/master/day/setup",{
+    day:selected,scope:"week",active:true,weekdays:[0,1,2,3,4],
+    start:"10:00",end:"19:00",breakStart:"13:00",breakEnd:"14:00",reason:"Обед"
+  },ids.master);
+  assert.equal(result.status,200,JSON.stringify(result.body));
+  assert.equal(result.body.count,7);
+  const store=h.readStore();
+  const day=new Date(selected+"T12:00:00Z"),weekday=(day.getUTCDay()+6)%7;
+  day.setUTCDate(day.getUTCDate()-weekday);
+  const dates=Array.from({length:7},(_,i)=>new Date(day.getTime()+i*86400000).toISOString().slice(0,10));
+  for(let i=0;i<7;i++){
+    const row=store.day_overrides.find(x=>x.day===dates[i]);
+    assert.ok(row,"Missing day override "+dates[i]);
+    assert.equal(row.active,i<5);
+    assert.equal(store.blocks.some(x=>x.day===dates[i]),i<5);
+  }
+});
+test("41 conflict rolls back all weekly day and break updates",async()=>{
+  const h=createHarness();await named(h,ids.a);
+  const date=h.openDay({min:7,max:14}),time=(await free(h,date,"5"))[0];
+  assert.equal((await h.post("/api/book",{date,time,serviceIds:[5]},ids.a)).status,200);
+  const before=h.readStore();
+  const result=await h.post("/api/master/day/setup",{
+    day:date,scope:"week",active:false,weekdays:[],
+    start:"10:00",end:"19:00",breakStart:"",breakEnd:""
+  },ids.master);
+  assert.equal(result.status,409,JSON.stringify(result.body));
+  assert.deepEqual(h.readStore().day_overrides,before.day_overrides);
+  assert.deepEqual(h.readStore().blocks,before.blocks);
+});
