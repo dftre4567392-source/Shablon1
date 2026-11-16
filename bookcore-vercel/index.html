@@ -1167,9 +1167,53 @@ async function createService(){
 }
 function onboard(){if(!initial){fail("Откройте приложение через Telegram-бота");return;}el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><div style="font-size:34px;text-align:center">✿</div><h2 style="text-align:center">Давайте знакомиться!</h2><p class="sub" style="text-align:center">Укажите ваше настоящее имя, чтобы мастер знал, кого ожидать на процедуре.</p><input class="field" id="newName" maxlength="50" placeholder="Например, Анастасия"/><button class="btn full" onclick="saveName()">Продолжить</button><p class="cap" style="text-align:center">Без паспортов и данных банковских карт</p></div></div>';}
 async function saveName(){const name=el("newName").value.trim();if(name.length<2)return fail("Введите имя, не менее двух символов");try{await api("/api/name",{method:"POST",body:JSON.stringify({name})});state.me.clientName=name;state.me.needsName=false;el("modalRoot").innerHTML="";render()}catch(e){fail(e.message)}}
+// Local day-boundary checks are cheap; network checks are throttled and only run while visible.
+let lastObservedStudioDay="",lastMasterSyncAt=0,liveMasterSyncBusy=false;
+async function liveCalendarTick(force=false){
+  if(document.visibilityState==="hidden"||!state.public)return;
+  const today=studioToday();
+  const newDay=lastObservedStudioDay&&lastObservedStudioDay!==today;
+  lastObservedStudioDay=today;
+  if(newDay){
+    if(isMaster()&&state.page==="calendar"&&state.masterDate<today){
+      state.masterDate=today;state.masterMonth=today.slice(0,7);
+    }
+    if(!isMaster()&&state.date&&!validCalendarDate(state.date)){
+      state.date="";state.time="";state.slots=[];
+    }
+    render();
+  }
+  if(isMaster()&&state.page==="calendar"&&!state.loading){
+    if(!force&&!newDay&&Date.now()-lastMasterSyncAt<12000)return;
+    if(liveMasterSyncBusy)return;
+    liveMasterSyncBusy=true;lastMasterSyncAt=Date.now();
+    try{
+      const incoming=await api("/api/master");
+      if(state.page!=="calendar")return;
+      const relevant=x=>JSON.stringify({
+        bookings:x?.bookings,blocks:x?.blocks,services:x?.services,
+        schedule:x?.schedule,bookingWindowDays:x?.bookingWindowDays,
+        bookingWindowAnchor:x?.bookingWindowAnchor
+      });
+      const changed=relevant(incoming)!==relevant(state.master);
+      if(changed){
+        state.master=incoming;
+        state.public.bookingWindowDays=incoming.bookingWindowDays||state.public.bookingWindowDays;
+        state.public.bookingWindowAnchor=incoming.bookingWindowAnchor||null;
+        render();
+        void loadMasterSlots();
+      }
+      await loadMasterCalendar({quiet:true});
+    }catch(error){console.warn("BOOKCORE_LIVE_MASTER_REFRESH_FAILED",String(error));}
+    finally{liveMasterSyncBusy=false;}
+  }else if(!isMaster()&&state.page==="booking"&&(force||newDay)){
+    await refreshAvailability();
+  }
+}
 setInterval(updateRestoreCountdowns,1000);
 setInterval(()=>{void refreshAvailability()},11000+Math.floor(Math.random()*4000));
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void refreshAvailability();});
-window.addEventListener("focus",()=>{void refreshAvailability();});
+setInterval(()=>{void liveCalendarTick()},3000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void liveCalendarTick(true);});
+window.addEventListener("focus",()=>{void liveCalendarTick(true);});
 init();
 </script></body></html>
