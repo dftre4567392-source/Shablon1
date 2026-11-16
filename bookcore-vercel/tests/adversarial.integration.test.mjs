@@ -84,7 +84,7 @@ test("ABUSE-11 already cancelled records cannot be completed, no-showed or cance
  const h=createHarness();await name(h);const d=h.openDay(),t=(await slots(h,d))[0],b=await book(h,ids.a,d,t);
  await h.post("/api/cancel",{id:b.body.id},ids.a);
  for(const status of ["completed","no_show","cancelled_by_master"]){
-  assert.equal((await h.post("/api/status",{id:b.body.id,status},ids.master)).status,409);
+  assert.equal((await h.post("/api/status",{id:b.body.id,status,reason:"Запись уже отменена клиентом"},ids.master)).status,409);
  }
 });
 test("ABUSE-12 changing weekly work hours cannot invalidate existing confirmed bookings",async()=>{
