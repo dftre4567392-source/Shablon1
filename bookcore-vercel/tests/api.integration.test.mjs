@@ -446,7 +446,7 @@ test("39 fixed two-week booking period remains stable until its boundary",async(
   assert.equal(set.body.bookingRange.days,14);
   const original=h.readStore();
   assert.equal(original.booking_window_anchor,h.today());
-  const start=h.today(),end=h.addDays(13);
+  const start=h.today(),end=h.addDays(13),nextStart=h.addDays(14),nextEnd=h.addDays(27);
   assert.equal(set.body.bookingRange.start,start);
   assert.equal(set.body.bookingRange.end,end);
   assert.equal(vm.runInContext("bookableDate("+JSON.stringify(end)+",__saved)",Object.assign(h.sandbox,{__saved:original})),true);
@@ -461,8 +461,8 @@ test("39 fixed two-week booking period remains stable until its boundary",async(
   };
   assert.equal(snapshot(6).start,start,"Mid-period day must not move the opening date");
   assert.equal(snapshot(6).end,end,"Mid-period day must not move the closing date");
-  assert.equal(snapshot(14).start,h.addDays(14),"Next period opens at boundary");
-  assert.equal(snapshot(14).end,h.addDays(27));
+  assert.equal(snapshot(14).start,nextStart,"Next period opens at boundary");
+  assert.equal(snapshot(14).end,nextEnd);
 });
 test("40 weekly day setup saves day overrides and lunch together",async()=>{
   const h=createHarness();
