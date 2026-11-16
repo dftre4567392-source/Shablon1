@@ -57,6 +57,17 @@
 .studio-map-actions a{flex:1;text-decoration:none;text-align:center;min-width:130px}
 .location-note{font-size:12px;color:#806d7b}
 @media(max-width:390px){.service-media{width:76px;height:85px}.service{gap:8px}.service-right{min-width:64px}.service-more{font-size:10px;padding:6px}.studio-map{height:205px}}
+/* Compact controls in the original Master calendar, preserving the existing business logic. */
+.master-settings{padding:0!important;overflow:hidden;margin:12px 0!important}
+.master-settings>summary{padding:16px;cursor:pointer;list-style:none;font-size:14px;font-weight:750;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.master-settings>summary::-webkit-details-marker{display:none}
+.master-settings>summary:after{content:'⌄';font-size:20px;color:#86617e;flex-shrink:0}
+.master-settings[open]>summary:after{content:'⌃'}
+.master-settings[open]>summary{border-bottom:1px solid #efdfeb}
+.master-settings .master-inner{padding:12px 16px 16px}
+.master-settings .master-inner .field{margin:6px 0 10px}
+.master-check-title{color:#583a4f}
+@media(max-width:390px){.master-settings>summary{font-size:13px;padding:13px}.master-settings .master-inner{padding:10px 12px 14px}}
 </style></head><body><main class="wrap"><div class="top"><div><div class="logo">✦ BOOKCORE</div><div class="tiny">BEAUTY APPOINTMENTS</div></div><div class="circle">✿</div></div><div id="main"><div class="empty">Загружаем студию…</div></div></main><nav id="dock" class="dock"></nav><div id="modalRoot"></div><script>
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
@@ -625,35 +636,35 @@ function masterCalendarView(){
  const blocks=(state.master?.blocks||[]).filter(b=>b.day===date);
  const windowDays=state.master?.bookingWindowDays||state.public?.bookingWindowDays||30;
  return '<div class="section"><h2>Календарь мастера</h2></div>'+
- '<div class="card"><h3>На сколько дней открывать запись?</h3><p class="sub">Клиенты смогут выбирать только даты в установленном вами периоде. За его пределами запись закрыта.</p>'+
+ '<details class="card master-settings"><summary>⚙ Период записи · '+windowDays+' дней</summary><div class="master-inner"><h3>На сколько дней открывать запись?</h3><p class="sub">Клиенты смогут выбирать только даты в установленном вами периоде. За его пределами запись закрыта.</p>'+
  '<select id="bookingWindow" class="field" aria-label="Период открытия записи">'+
  [[7,"На неделю"],[14,"На две недели"],[30,"На месяц"],[45,"На 45 дней"]].map(x=>'<option value="'+x[0]+'"'+(Number(windowDays)===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
- '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div>'+
- '<div class="section"><h2>Выберите день</h2></div>'+masterCalendarMarkup()+
- '<div class="card" style="margin-top:13px"><h3>Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</h3>'+
+ '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div></details>'+
+ '<div class="section"><h2>Даты и рабочие часы</h2></div>'+masterCalendarMarkup()+
+ '<details class="card master-settings" open><summary>✎ Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</summary><div class="master-inner">'+
  '<p class="sub">Можно открыть дополнительный рабочий день, сделать выходной или сократить смену. Уже подтверждённые визиты нельзя случайно удалить.</p>'+
  '<label class="cap" for="masterDayMode">Как работает мастер?</label>'+
  '<select class="field" id="masterDayMode" onchange="masterDayModeChanged()">'+
  [["normal","Полный рабочий день"],["short","Сокращённый рабочий день"],["off","Выходной"]].map(x=>'<option value="'+x[0]+'"'+(kind===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
  '</select><div class="grid"><div><label class="cap">Начало рабочего дня</label><input id="masterDayStart" class="field" type="time" value="'+esc(shift.start_time||"10:00")+'"'+(kind==="off"?" disabled":"")+'/></div>'+
  '<div><label class="cap">Конец рабочего дня</label><input id="masterDayEnd" class="field" type="time" value="'+esc(shift.end_time||"19:00")+'"'+(kind==="off"?" disabled":"")+'/></div></div>'+
- '<button class="btn full" onclick="saveMasterDay()">Сохранить этот день</button></div>'+
- '<div class="section"><h2>Добавить клиента на '+esc(date)+'</h2></div>'+
- '<div class="card"><p class="sub">Выберите услугу и свободное время прямо в календаре — так же, как это делает клиент.</p>'+
+ '<button class="btn full" onclick="saveMasterDay()">Сохранить этот день</button></div></details>'+
+ '<details class="card master-settings"><summary>＋ Записать клиента вручную</summary><div class="master-inner"><p class="sub">На '+esc(date)+'</p>'+
+ '<p class="sub">Выберите услугу и свободное время прямо в календаре — так же, как это делает клиент.</p>'+
  '<input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/>'+
  '<select id="manualService" class="field" onchange="changeMasterService(this.value)">'+(state.public?.services||[]).map(x=>
  '<option value="'+x.id+'"'+(Number(state.masterServiceId||state.public?.services?.[0]?.id)===x.id?" selected":"")+'>'+esc(x.title)+' ('+x.minutes+' мин)</option>').join("")+'</select>'+
  '<div class="sub" style="margin:14px 0 9px">Свободное время</div><div class="flex" id="masterTimeChoices">'+masterTimeOptions()+'</div>'+
  '<input id="manualDate" type="hidden" value="'+esc(date)+'"/>'+
  '<input id="manualTime" type="hidden" value="'+esc(state.masterTime)+'"/>'+
- '<button class="btn full" style="margin-top:13px" onclick="createManual()">Записать клиента</button></div>'+
- '<div class="section"><h2>Обед, перерыв или выходной</h2></div>'+
- '<div class="card"><p class="sub">Для перерыва укажите начало и конец. Чтобы закрыть весь день, сохраните его как выходной выше.</p>'+
+ '<button class="btn full" style="margin-top:13px" onclick="createManual()">Записать клиента</button></div></details>'+
+ '<details class="card master-settings"><summary>☕ Добавить перерыв</summary><div class="master-inner">'+
+ '<p class="sub">Для перерыва укажите начало и конец. Чтобы закрыть весь день, сохраните его как выходной выше.</p>'+
  '<input id="blockDay" type="hidden" value="'+esc(date)+'"/>'+
  '<div class="grid"><input id="from" class="field" type="time" aria-label="Начало перерыва"/>'+
  '<input id="to" class="field" type="time" aria-label="Конец перерыва"/></div>'+
  '<input id="blockReason" class="field" placeholder="Причина, например: обед"/>'+
- '<button class="btn line full" onclick="blockDay()">Добавить перерыв</button></div>'+
+ '<button class="btn line full" onclick="blockDay()">Добавить перерыв</button></div></details>'+
  (blocks.length?'<div class="section"><h2>Перерывы и блокировки</h2></div>'+blocks.map(b=>
  '<div class="item row"><div><b>'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</b><div class="sub">'+esc(b.reason||"Без причины")+'</div></div>'+
  '<button class="btn line" onclick="unblock('+Number(b.id)+')">Удалить</button></div>').join(""):"")+
@@ -726,13 +737,13 @@ function masterSetupChecklist(){
   ];
   const ready=checks.filter(x=>x.ok).length;
   return '<div class="section"><h2>Готовность студии</h2></div>'+
-   '<div class="card"><div class="row"><b>'+ready+' из '+checks.length+' пунктов заполнено</b>'+
+   '<details class="card master-settings" '+(ready===checks.length?'':'open')+'><summary class="master-check-title">Профиль студии · '+ready+'/'+checks.length+' готово</summary><div class="master-inner"><div class="row"><b>'+ready+' из '+checks.length+' пунктов заполнено</b>'+
    '<span class="pill">'+(ready===checks.length?"Готово":"Настройка")+'</span></div>'+
    '<div style="background:#f2e6ed;border-radius:10px;height:9px;overflow:hidden;margin:14px 0">'+
    '<div style="background:#97617c;height:100%;width:'+Math.round(100*ready/checks.length)+'%"></div></div>'+
    checks.map(c=>'<div class="row" style="padding:9px 0;border-top:1px solid #f2e6ed"><span class="sub">'+
       (c.ok?"✅ ":"○ ")+esc(c.text)+'</span>'+
-      (!c.ok&&c.page?'<button type="button" class="service-more" onclick="route(\''+c.page+'\')">Настроить</button>':"")+'</div>').join("")+'</div>';
+      (!c.ok&&c.page?'<button type="button" class="service-more" onclick="route(\''+c.page+'\')">Открыть</button>':"")+'</div>').join("")+'</div></div></details>';
 }
 async function toggleServiceVisibility(id,active){
  try{
