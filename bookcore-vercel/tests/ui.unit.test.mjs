@@ -168,3 +168,14 @@ test("UI-13 anchored booking range colors unavailable dates and keeps master edi
   assert.match(calendar,/range-closed/);
   assert.ok(calendar.includes("selectMasterDay('2026-11-27')"),"Master can prepare a date beyond the client booking window");
 });
+
+test("UI-14 preview has exactly the selected number of dates; outside selected master date remains distinct",()=>{
+  const m=environment({now:"2026-11-13T10:00:00Z",role:"master"});
+  m.run('state.public.bookingWindowDays=14;state.public.bookingWindowAnchor="2026-11-13";state.masterWindowPreview=7;state.masterDate="2026-11-21";');
+  assert.equal(m.run("bookingRangeBounds().start"),"2026-11-13");
+  assert.equal(m.run("bookingRangeBounds().end"),"2026-11-19");
+  const markup=m.run("masterCalendarMarkup()");
+  assert.match(markup,/range-closed chosen/);
+  assert.ok(markup.includes("selectMasterDay('2026-11-21')"),"Master can still prepare a closed date");
+  assert.match(html,/\.cal-day\.range-closed\.chosen\{/);
+});
