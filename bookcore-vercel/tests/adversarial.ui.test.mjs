@@ -20,7 +20,7 @@ function environment(){
   location:{origin:"https://bookcore-test.invalid"},
   URL,Blob,Intl,Date,TextEncoder,TextDecoder,AbortSignal,Response,
   fetch:async()=>new Response(JSON.stringify({slots:[]}),{status:200}),
-  alert:msg=>dialogs.push(String(msg)),console:{...console,error:e=>errors.push(String(e))},setTimeout,clearTimeout
+  alert:msg=>dialogs.push(String(msg)),console:{...console,error:e=>errors.push(String(e))},setTimeout,clearTimeout,setInterval:()=>0,clearInterval:()=>{}
  };
  vm.createContext(sandbox);vm.runInContext(script,sandbox);
  vm.runInContext('state.public={timezone:"Europe/Moscow",ready:true,services:[{id:1,title:"Услуга",minutes:60,price:1200}]};state.me={role:"client",clientName:"Анна"};',sandbox);
