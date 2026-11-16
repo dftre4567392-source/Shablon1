@@ -27,7 +27,7 @@ function environment({now="2026-11-13T10:00:00Z",role="client",ready=true}={}){
     fetch:async(url,options)=>{
       requests.push({url:String(url),options});
       const route=new URL(String(url)).searchParams.get("route");
-      const response=route==="/api/slots"?{slots:["10:00","10:15"]}:route==="/api/public"?{ready:true,services:[]}:route==="/api/me"?{role:"client",needsName:false}:
+      const response=["/api/slots","/api/availability"].includes(route)?{slots:["10:00","10:15"],days:{}}:route==="/api/public"?{ready:true,services:[]}:route==="/api/me"?{role:"client",needsName:false}:
         {ok:true,bookings:[],blocks:[],schedule:[],clients:[],services:[]};
       return new Response(JSON.stringify(response),{status:200,headers:{"content-type":"application/json"}});
     }
@@ -77,10 +77,7 @@ test("UI-04 year boundary December -> January without visible year",()=>{
   assert.ok(january.includes("2027-01-10"));
   assert.equal(b.run('validCalendarDate("2027-01-10")'),true);
   b.run("changeMonth(1)");
-  const february=b.run("calendarMarkup()");
-  assert.match(february,/Февраль<\/b>/);
-  b.run("changeMonth(1)");
-  assert.match(b.run("calendarMarkup()"),/Февраль<\/b>/,"cannot scroll beyond booking window");
+  assert.match(b.run("calendarMarkup()"),/Январь<\/b>/,"cannot scroll beyond January booking window");
 });
 test("UI-05 multi-service selection and deselection preserves totals",()=>{
   const b=environment();
