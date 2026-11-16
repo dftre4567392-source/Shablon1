@@ -681,7 +681,8 @@ function masterCalendarView(){
  [[7,"На неделю"],[14,"На две недели"],[30,"На месяц"],[45,"На 45 дней"]].map(x=>'<option value="'+x[0]+'"'+(Number(windowDays)===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
  '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div></details>'+
  '<div class="section"><h2>Даты и рабочие часы</h2></div>'+
- '<div class="range-caption">Период записи: '+esc(bookingRangeBounds().start)+' — '+esc(bookingRangeBounds().end)+'. Серые даты недоступны клиенту. Мастер может заранее настроить их рабочее расписание.</div>'+masterCalendarMarkup()+
+ '<div class="range-caption" id="masterRangeCaption">Период записи: '+esc(bookingRangeBounds().start)+' — '+esc(bookingRangeBounds().end)+'. Серые даты недоступны клиенту. Мастер может заранее настроить их рабочее расписание.</div>'+
+ '<div id="masterCalendarHost">'+masterCalendarMarkup()+'</div>'+
  '<details class="card master-settings" data-panel="day" open><summary>✎ Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</summary><div class="master-inner">'+
  '<p class="sub">Можно открыть дополнительный рабочий день, сделать выходной или сократить смену. Уже подтверждённые визиты нельзя случайно удалить.</p>'+
  '<label class="cap" for="masterDayMode">Как работает мастер?</label>'+
@@ -714,16 +715,33 @@ function masterCalendarView(){
  (todayRows.length?todayRows.map(bookingCard).join(""):'<div class="empty">На этот день записей нет</div>')+
  '<button class="btn line full" onclick="loadMaster()">Обновить календарь</button>';
 }
-async function loadMasterCalendar(){
+async function loadMasterCalendar({quiet=false}={}){
  if(!isMaster()||state.page!=="calendar")return;
  const month=state.masterMonth||studioToday().slice(0,7);
  const request=++state.masterCalendarRequest;
- try{const service=Number(state.masterServiceId||state.public?.services?.[0]?.id||0);
- const data=await api("/api/master/calendar?month="+encodeURIComponent(month)+"&services="+encodeURIComponent(service||""));
-   if(request!==state.masterCalendarRequest||state.page!=="calendar")return;
-   state.masterCalendar={month,days:data.days||{},overrides:data.overrides||[]};
-   render();
- }catch(error){console.warn("BOOKCORE_MASTER_CALENDAR_FAILED",error);fail("Не удалось загрузить календарь: "+error.message);}
+ try{
+   const service=Number(state.masterServiceId||state.public?.services?.[0]?.id||0);
+   const data=await api("/api/master/calendar?month="+encodeURIComponent(month)+"&services="+encodeURIComponent(service||""));
+   if(request!==state.masterCalendarRequest||state.page!=="calendar"||month!==state.masterMonth)return;
+   const incoming={month,days:data.days||{},overrides:data.overrides||[]};
+   const changed=JSON.stringify(state.masterCalendar)!==JSON.stringify(incoming);
+   state.masterCalendar=incoming;
+   if(state.public&&data.bookingRange){
+     state.public.bookingWindowDays=data.windowDays||state.public.bookingWindowDays;
+     state.public.bookingWindowAnchor=data.bookingRange.start;
+   }
+   if(!quiet){render();return;}
+   if(changed){
+     // Only redraw when calendar data actually changed; preserving the edit form.
+     const host=el("masterCalendarHost");
+     if(host)host.innerHTML=masterCalendarMarkup();
+     const caption=el("masterRangeCaption");
+     if(caption)caption.textContent="Период записи: "+bookingRangeBounds().start+" — "+bookingRangeBounds().end+". Серые даты недоступны клиенту.";
+   }
+ }catch(error){
+   console.warn("BOOKCORE_MASTER_CALENDAR_FAILED",error);
+   if(!quiet)fail("Не удалось загрузить календарь: "+error.message);
+ }
 }
 async function loadMasterSlots(){
  if(!isMaster()||state.page!=="calendar")return;
@@ -755,8 +773,11 @@ function shiftMasterMonth(delta){
 }
 async function saveMasterWindow(){
  const days=Number(el("bookingWindow")?.value);
- try{await api("/api/master/window",{method:"POST",body:JSON.stringify({days})});
-   state.public.bookingWindowDays=days;await loadMaster();fail("Готово: запись открыта на "+days+" дней.");
+ try{const result=await api("/api/master/window",{method:"POST",body:JSON.stringify({days})});
+   state.public.bookingWindowDays=days;
+   state.public.bookingWindowAnchor=result.bookingRange?.start||studioToday();
+   await loadMaster();
+   fail("Готово: фиксированный период записи — "+result.bookingRange.start+" — "+result.bookingRange.end);
  }catch(e){fail("Не удалось изменить период: "+e.message)}
 }
 async function saveMasterDay(){
@@ -897,8 +918,17 @@ async function loadAvailability({quiet=false}={}){
     if(request!==state.availabilityRequest||state.page!=="booking"||
       visibleMonth().slice(0,7)+"|"+state.serviceIds.join(",")!==key||
       (state.serviceIds.length?state.date:"")+"|"+state.serviceIds.join(",")!==selection)return;
+    const previousRange=bookingRangeBounds().end;
+    if(state.public){
+      if([7,14,30,45].includes(Number(response.bookingWindowDays)))state.public.bookingWindowDays=Number(response.bookingWindowDays);
+      state.public.bookingWindowAnchor=response.bookingWindowAnchor||null;
+    }
+    const changedRange=previousRange!==bookingRangeBounds().end;
+    if(changedRange&&state.date&&!validCalendarDate(state.date)){
+      state.date="";state.time="";state.slots=[];state.availabilityAlert="Период записи обновился. Выберите новую дату.";
+    }
     const oldSlots=state.slots;
-    const nextSlots=date?response.slots||[]:[];
+    const nextSlots=state.date?response.slots||[]:[];
     const changed=JSON.stringify(nextSlots)!==JSON.stringify(oldSlots);
     const previousAlert=state.availabilityAlert;
     const taken=!!state.time&&!nextSlots.includes(state.time);
@@ -917,7 +947,7 @@ async function loadAvailability({quiet=false}={}){
     }else{
       state.availabilityAlert="";
     }
-    if(!quiet||taken){
+    if(!quiet||taken||changedRange){
       // Full rendering is necessary only on explicit selection or when a selected
       // slot was invalidated; keep the user's scroll position intact.
       const position=window.scrollY;
@@ -1099,7 +1129,10 @@ async function loadMaster(){
     state.master=result;
     if(!state.masterMonth)state.masterMonth=studioToday().slice(0,7);
     if(!state.masterDate)state.masterDate=studioToday();
-    if(state.public)state.public.bookingWindowDays=result.bookingWindowDays||30;
+    if(state.public){
+      state.public.bookingWindowDays=result.bookingWindowDays||30;
+      state.public.bookingWindowAnchor=result.bookingWindowAnchor||null;
+    }
   }catch(error){
     if(sequence===masterLoadSequence)fail("Не удалось загрузить кабинет: "+error.message);
   }finally{
