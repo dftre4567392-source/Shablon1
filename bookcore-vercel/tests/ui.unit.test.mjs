@@ -151,3 +151,20 @@ test("UI-12 booking disabled when bot is not configured",()=>{
   assert.match(markup,/Онлайн-запись включится после подключения бота и мастера/);
   assert.match(markup,/<button type="button" class="btn full"[^>]+disabled/);
 });
+
+
+test("UI-13 anchored booking range colors unavailable dates and keeps master editing",()=>{
+  const client=environment({now:"2026-11-13T10:00:00Z"});
+  client.run('state.public.bookingWindowDays=14;state.public.bookingWindowAnchor="2026-11-13";');
+  assert.equal(client.run("bookingRangeBounds().start"),"2026-11-13");
+  assert.equal(client.run("bookingRangeBounds().end"),"2026-11-26");
+  assert.equal(client.run('validCalendarDate("2026-11-27")'),false);
+  const markup=client.run("calendarMarkup()");
+  assert.match(markup,/range-closed/);
+  assert.match(markup,/disabled aria-label="2026-11-27/);
+  const master=environment({now:"2026-11-13T10:00:00Z",role:"master"});
+  master.run('state.public.bookingWindowDays=14;state.public.bookingWindowAnchor="2026-11-13";');
+  const calendar=master.run("masterCalendarMarkup()");
+  assert.match(calendar,/range-closed/);
+  assert.ok(calendar.includes("selectMasterDay('2026-11-27')"),"Master can prepare a date beyond the client booking window");
+});
