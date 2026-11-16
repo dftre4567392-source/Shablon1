@@ -832,6 +832,61 @@ async function execute(req){
     const saved=await mutate(s=>{s.booking_window_days=days;s.booking_window_anchor=todayInStudio();return bookingRange(s);});
     return respond({ok:true,days,bookingRange:saved});
   }
+  // Save a single date or seven-day week, including an optional break, atomically.
+  // Existing confirmed bookings are never deleted or silently shortened.
+  if(route==="/api/master/day/setup"&&method==="POST"){
+    const b=await body(req),date=String(b.day||""),scope=b.scope==="week"?"week":"day",
+      active=b.active===true,start=String(b.start||"10:00"),end=String(b.end||"19:00"),
+      breakStart=String(b.breakStart||""),breakEnd=String(b.breakEnd||"");
+    if(!blockableDate(date)||typeof b.active!=="boolean"||
+      !validTime(start)||!validTime(end)||minutes(start)>=minutes(end))fail(400,"INVALID_DAY_SCHEDULE");
+    if((breakStart||breakEnd)&&(!active||!validTime(breakStart)||!validTime(breakEnd)||
+      minutes(breakStart)>=minutes(breakEnd)||minutes(breakStart)<minutes(start)||minutes(breakEnd)>minutes(end)))
+      fail(400,"INVALID_BREAK");
+    const rawWeekdays=Array.isArray(b.weekdays)?b.weekdays:[0,1,2,3,4];
+    if(scope==="week"&&(rawWeekdays.length>7||new Set(rawWeekdays).size!==rawWeekdays.length||
+      rawWeekdays.some(x=>!Number.isInteger(x)||x<0||x>6)))fail(400,"INVALID_WEEKDAYS");
+    const target=new Date(date+"T12:00:00Z");
+    const weekday=(target.getUTCDay()+6)%7;
+    const monday=new Date(target);
+    monday.setUTCDate(monday.getUTCDate()-weekday);
+    const targets=(scope==="week"?Array.from({length:7},(_,i)=>{
+      const d=new Date(monday);d.setUTCDate(d.getUTCDate()+i);
+      return {day:d.toISOString().slice(0,10),active:active&&rawWeekdays.includes(i)};
+    }):[{day:date,active}]).filter(x=>x.day>=todayInStudio());
+    if(!targets.length||targets.some(x=>!blockableDate(x.day)))fail(400,"INVALID_DAY_SCHEDULE");
+    const reason=clean(b.reason||"Перерыв");
+    if(reason.length>300)fail(400,"INVALID_BREAK_REASON");
+    const saved=await mutate(s=>{
+      // Validate every affected day first: no partial changes on a failed week.
+      for(const item of targets){
+        const shiftStart=utc(item.day,start),shiftEnd=utc(item.day,end);
+        if(!shiftStart||!shiftEnd)fail(400,"INVALID_LOCAL_TIME");
+        const breakA=breakStart?utc(item.day,breakStart):null,breakB=breakEnd?utc(item.day,breakEnd):null;
+        if(breakStart&&(!breakA||!breakB))fail(400,"INVALID_LOCAL_TIME");
+        for(const booking of s.bookings){
+          if(!(booking.status==="confirmed"||
+            (booking.status==="cancelled_by_client"&&Date.parse(booking.restore_until)>Date.now())))continue;
+          if(studioDayFromInstant(booking.starts_at)!==item.day)continue;
+          if(!item.active||Date.parse(booking.starts_at)<shiftStart.getTime()||
+            Date.parse(booking.busy_until)>shiftEnd.getTime()||
+            (breakA&&Date.parse(booking.starts_at)<breakB.getTime()&&Date.parse(booking.busy_until)>breakA.getTime()))
+            fail(409,"EXISTING_BOOKINGS");
+        }
+      }
+      s.day_overrides||=[];s.blocks||[];
+      for(const item of targets){
+        s.day_overrides=s.day_overrides.filter(x=>x.day!==item.day);
+        s.day_overrides.push({day:item.day,active:item.active,start_time:start,end_time:end,
+          updated_at:new Date().toISOString()});
+        if(item.active&&breakStart&&!s.blocks.some(x=>x.day===item.day&&x.start_time===breakStart&&x.end_time===breakEnd)){
+          s.blocks.push({id:s.seq++,day:item.day,start_time:breakStart,end_time:breakEnd,reason});
+        }
+      }
+      return targets.length;
+    });
+    return respond({ok:true,count:saved,scope});
+  }
   if(route==="/api/master/day"&&method==="POST"){
     const b=await body(req),day=String(b.day||""),active=b.active===true,
       start=String(b.start||"10:00"),end=String(b.end||"19:00");
