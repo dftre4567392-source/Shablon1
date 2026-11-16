@@ -138,7 +138,7 @@ test("UI-10 client and master navigation still render without errors",()=>{
 });
 test("UI-11 selecting a day triggers combined service request",async()=>{
   const b=environment();
-  b.run("chooseService(1);chooseService(4);selectDate('2026-11-21');");
+  b.run("state.page='booking';chooseService(1);chooseService(4);selectDate('2026-11-21');");
   await new Promise(resolve=>setTimeout(resolve,10));
   assert.ok(b.requests.some(x=>x.url.includes("services=1%2C4")));
   assert.equal(b.run("state.slots.length"),2);
