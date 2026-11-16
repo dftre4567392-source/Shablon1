@@ -68,11 +68,27 @@ function blockableDate(day){
   return target>=today&&target<=today+365*86400000;
 }
 function bookingWindow(s){return [7,14,30,45].includes(Number(s?.booking_window_days))?Number(s.booking_window_days):30;}
+// A booking window is a fixed, non-overlapping block anchored when the master saves the period.
+// At the block boundary it advances automatically, without a cron job or browser restart.
+function bookingRange(s){
+  const days=bookingWindow(s),today=todayInStudio();
+  const anchor=validDate(s?.booking_window_anchor)&&s.booking_window_anchor<=today?s.booking_window_anchor:today;
+  const elapsed=Math.max(0,Math.floor((Date.parse(today+"T00:00:00Z")-Date.parse(anchor+"T00:00:00Z"))/86400000));
+  const cycles=Math.floor(elapsed/days),startDate=new Date(anchor+"T00:00:00Z");
+  startDate.setUTCDate(startDate.getUTCDate()+cycles*days);
+  const endDate=new Date(startDate);
+  endDate.setUTCDate(endDate.getUTCDate()+days-1);
+  return {start:startDate.toISOString().slice(0,10),end:endDate.toISOString().slice(0,10),days};
+}
 function bookableDate(date,s=null){
   if(!validDate(date))return false;
-  const today=Date.parse(todayInStudio()+"T00:00:00Z");
-  const d=Date.parse(date+"T00:00:00Z");
-  return d>=today&&d<=today+(s?bookingWindow(s):45)*86400000;
+  const today=todayInStudio();
+  if(date<today)return false;
+  // Preserve the old 45-day safety horizon for test helpers and master overrides.
+  if(!s)return date<=new Date(Date.parse(today+"T00:00:00Z")+45*86400000).toISOString().slice(0,10);
+  // Existing installations are migrated to fixed blocks when the period is next saved.
+  if(!validDate(s.booking_window_anchor))return date<=new Date(Date.parse(today+"T00:00:00Z")+bookingWindow(s)*86400000).toISOString().slice(0,10);
+  return date<=bookingRange(s).end;
 }
 function resolveServices(s,raw){
   const values=Array.isArray(raw)?raw:typeof raw==="number"?[raw]:typeof raw==="string"?raw.split(","):[];
@@ -200,7 +216,7 @@ function seed(){return {
  users:{},
  services:bootstrapServices(),
  schedule:[0,1,2,3,4,5,6].map(weekday=>({weekday,start_time:"10:00",end_time:"19:00",active:weekday>=1&&weekday<=5})),
- blocks:[],day_overrides:[],booking_window_days:30,location:{address:"",landmark:"",latitude:null,longitude:null},bookings:[],seq:1
+ blocks:[],day_overrides:[],booking_window_days:30,booking_window_anchor:null,location:{address:"",landmark:"",latitude:null,longitude:null},bookings:[],seq:1
 };}
 async function getMetadata(){
   try{return await head(PATH);}
@@ -568,7 +584,7 @@ async function execute(req){
   if(route==="/api/public"&&method==="GET"){
     const {state}=await load();
     const bot=await ensureBotSetup();
-    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,bookingWindowDays:bookingWindow(state),location:publicLocation(state),services:state.services.filter(x=>x.active).map(publicService),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
+    return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,bookingWindowDays:bookingWindow(state),bookingWindowAnchor:state.booking_window_anchor||null,bookingRange:bookingRange(state),location:publicLocation(state),services:state.services.filter(x=>x.active).map(publicService),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
   }
   // One snapshot for both the calendar and the selected day's slots.
   // Read the Blob once to avoid doubling storage reads for every active client.
@@ -582,7 +598,7 @@ async function execute(req){
     const {state}=await load();
     const dayStates=calendarDays(state,month,services);
     const available=date?slots(state,date,services):[];
-    return respond({month,date,services,bookingWindowDays:bookingWindow(state),days:dayStates.days,slots:available,
+    return respond({month,date,services,bookingWindowDays:bookingWindow(state),bookingRange:bookingRange(state),days:dayStates.days,slots:available,
       serverTime:new Date().toISOString()});
   }
   if(route==="/api/calendar"&&method==="GET"){
@@ -778,7 +794,7 @@ async function execute(req){
       if(!auth.master&&Date.parse(x.starts_at)-Date.now()<12*3600000)fail(409,"TOO_LATE_TO_RESCHEDULE");
       const originalMinutes=originalBookingMinutes(x);
       if(!originalMinutes||
-         !slots(auth.master?{...s,booking_window_days:45}:s,date,x.service_ids||[x.service_id],x.id,originalMinutes).includes(time))
+         !slots(auth.master?{...s,booking_window_days:45,booking_window_anchor:null}:s,date,x.service_ids||[x.service_id],x.id,originalMinutes).includes(time))
         fail(409,"TIME_NOT_AVAILABLE");
       Object.assign(x,timeRange({minutes:originalMinutes},date,time),{service_minutes:originalMinutes});
       return {...x};
@@ -792,15 +808,15 @@ async function execute(req){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
       blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.map(s=>({...publicService(s),active:s.active!==false,photoSources:Array.isArray(s.photos)?s.photos:[]})),location:publicLocation(state),
-      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),bookingWindowDays:bookingWindow(state)});
+      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),bookingWindowDays:bookingWindow(state),bookingWindowAnchor:state.booking_window_anchor||null,bookingRange:bookingRange(state)});
   }
 
   if(route==="/api/master/calendar"&&method==="GET"){
     const month=uri.searchParams.get("month")||"";
     const {state}=await load();
     const services=uri.searchParams.get("services")||"";
-    const overview=calendarDays({...state,booking_window_days:45},month,services);
-    return respond({days:overview.days,overrides:(state.day_overrides||[]).filter(x=>x.day.startsWith(month)),windowDays:bookingWindow(state)});
+    const overview=calendarDays({...state,booking_window_days:45,booking_window_anchor:null},month,services);
+    return respond({days:overview.days,overrides:(state.day_overrides||[]).filter(x=>x.day.startsWith(month)),windowDays:bookingWindow(state),bookingRange:bookingRange(state)});
   }
   if(route==="/api/master/slots"&&method==="GET"){
     const date=String(uri.searchParams.get("date")||"");
@@ -808,13 +824,13 @@ async function execute(req){
     if(!bookableDate(date,{booking_window_days:45}))fail(400,"DATE_OUT_OF_RANGE");
     const {state}=await load();
     if(!resolveServices(state,services))fail(400,"INVALID_SERVICES");
-    return respond({date,slots:slots({...state,booking_window_days:45},date,services)});
+    return respond({date,slots:slots({...state,booking_window_days:45,booking_window_anchor:null},date,services)});
   }
   if(route==="/api/master/window"&&method==="POST"){
     const b=await body(req),days=Number(b.days);
     if(![7,14,30,45].includes(days))fail(400,"INVALID_BOOKING_WINDOW");
-    await mutate(s=>{s.booking_window_days=days;return true;});
-    return respond({ok:true,days});
+    const saved=await mutate(s=>{s.booking_window_days=days;s.booking_window_anchor=todayInStudio();return bookingRange(s);});
+    return respond({ok:true,days,bookingRange:saved});
   }
   if(route==="/api/master/day"&&method==="POST"){
     const b=await body(req),day=String(b.day||""),active=b.active===true,
