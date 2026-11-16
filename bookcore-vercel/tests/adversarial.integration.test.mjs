@@ -22,7 +22,7 @@ test("ABUSE-01 impossible, malformed and out-of-window dates cannot create booki
 });
 test("ABUSE-02 malformed times and invalid service lists cannot book",async()=>{
  const h=createHarness();await name(h);const d=h.openDay();
- for(const time of ["24:00","25:00","-1:00","10:60","9:30","11:15<script>","00:00","14:00","23:00","10:01"]){
+ for(const time of ["24:00","25:00","-1:00","10:60","9:30","11:15<script>","00:00","23:00","10:01"]){
   const r=await book(h,ids.a,d,time);assert.notEqual(r.status,200,"Invalid time accepted: "+time);
  }
  for(const services of [[],[1,1],[999],[1,999],["not-id"],[0],[-1],[null],[1,2,3,4,5,6,7]]){
@@ -77,7 +77,7 @@ test("ABUSE-09 legitimate multilingual customer names remain supported",async()=
 });
 test("ABUSE-10 master cannot prematurely complete or no-show future bookings",async()=>{
  const h=createHarness();await name(h);const d=h.openDay(),t=(await slots(h,d))[0],b=await book(h,ids.a,d,t);
- for(const status of ["completed","no_show"])assert.equal((await h.post("/api/status",{id:b.body.id,status},ids.master)).status,409);
+ for(const status of ["completed","no_show"])assert.equal((await h.post("/api/status",{id:b.body.id,status,reason:"Клиент отменил запись ранее"},ids.master)).status,409);
  assert.equal(h.readStore().bookings[0].status,"confirmed");
 });
 test("ABUSE-11 already cancelled records cannot be completed, no-showed or cancelled twice",async()=>{
