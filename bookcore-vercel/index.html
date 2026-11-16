@@ -636,12 +636,12 @@ function masterCalendarView(){
  const blocks=(state.master?.blocks||[]).filter(b=>b.day===date);
  const windowDays=state.master?.bookingWindowDays||state.public?.bookingWindowDays||30;
  return '<div class="section"><h2>Календарь мастера</h2></div>'+
- '<details class="card master-settings"><summary>⚙ Период записи · '+windowDays+' дней</summary><div class="master-inner"><h3>На сколько дней открывать запись?</h3><p class="sub">Клиенты смогут выбирать только даты в установленном вами периоде. За его пределами запись закрыта.</p>'+
+ '<details class="card master-settings" data-panel="window"><summary>⚙ Период записи · '+windowDays+' дней</summary><div class="master-inner"><h3>На сколько дней открывать запись?</h3><p class="sub">Клиенты смогут выбирать только даты в установленном вами периоде. За его пределами запись закрыта.</p>'+
  '<select id="bookingWindow" class="field" aria-label="Период открытия записи">'+
  [[7,"На неделю"],[14,"На две недели"],[30,"На месяц"],[45,"На 45 дней"]].map(x=>'<option value="'+x[0]+'"'+(Number(windowDays)===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
  '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div></details>'+
  '<div class="section"><h2>Даты и рабочие часы</h2></div>'+masterCalendarMarkup()+
- '<details class="card master-settings" open><summary>✎ Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</summary><div class="master-inner">'+
+ '<details class="card master-settings" data-panel="day" open><summary>✎ Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</summary><div class="master-inner">'+
  '<p class="sub">Можно открыть дополнительный рабочий день, сделать выходной или сократить смену. Уже подтверждённые визиты нельзя случайно удалить.</p>'+
  '<label class="cap" for="masterDayMode">Как работает мастер?</label>'+
  '<select class="field" id="masterDayMode" onchange="masterDayModeChanged()">'+
@@ -649,7 +649,7 @@ function masterCalendarView(){
  '</select><div class="grid"><div><label class="cap">Начало рабочего дня</label><input id="masterDayStart" class="field" type="time" value="'+esc(shift.start_time||"10:00")+'"'+(kind==="off"?" disabled":"")+'/></div>'+
  '<div><label class="cap">Конец рабочего дня</label><input id="masterDayEnd" class="field" type="time" value="'+esc(shift.end_time||"19:00")+'"'+(kind==="off"?" disabled":"")+'/></div></div>'+
  '<button class="btn full" onclick="saveMasterDay()">Сохранить этот день</button></div></details>'+
- '<details class="card master-settings"><summary>＋ Записать клиента вручную</summary><div class="master-inner"><p class="sub">На '+esc(date)+'</p>'+
+ '<details class="card master-settings" data-panel="manual"><summary>＋ Записать клиента вручную</summary><div class="master-inner"><p class="sub">На '+esc(date)+'</p>'+
  '<p class="sub">Выберите услугу и свободное время прямо в календаре — так же, как это делает клиент.</p>'+
  '<input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/>'+
  '<select id="manualService" class="field" onchange="changeMasterService(this.value)">'+(state.public?.services||[]).map(x=>
@@ -658,7 +658,7 @@ function masterCalendarView(){
  '<input id="manualDate" type="hidden" value="'+esc(date)+'"/>'+
  '<input id="manualTime" type="hidden" value="'+esc(state.masterTime)+'"/>'+
  '<button class="btn full" style="margin-top:13px" onclick="createManual()">Записать клиента</button></div></details>'+
- '<details class="card master-settings"><summary>☕ Добавить перерыв</summary><div class="master-inner">'+
+ '<details class="card master-settings" data-panel="break"><summary>☕ Добавить перерыв</summary><div class="master-inner">'+
  '<p class="sub">Для перерыва укажите начало и конец. Чтобы закрыть весь день, сохраните его как выходной выше.</p>'+
  '<input id="blockDay" type="hidden" value="'+esc(date)+'"/>'+
  '<div class="grid"><input id="from" class="field" type="time" aria-label="Начало перерыва"/>'+
@@ -812,8 +812,22 @@ function render(){
   // A master must land on the dashboard, not the client home or settings fallback.
   if(isMaster()&&!["overview","calendar","clients","analytics","settings"].includes(state.page))state.page="overview";
   if(!isMaster()&&["overview","calendar","clients","analytics","settings"].includes(state.page))state.page="home";
+  const root=el("main");
+  const masterCalendar=isMaster()&&state.page==="calendar";
+  const oldDay=root.querySelector?.("#manualDate")?.value;
+  const previousPanels=masterCalendar?[...root.querySelectorAll?.("details.master-settings")||[]]:[];
+  const openPanels=new Set(previousPanels.filter(x=>x.open).map(x=>x.dataset.panel));
+  const keepFields=masterCalendar&&oldDay===state.masterDate;
+  const preserved=keepFields?Object.fromEntries(["manualName","blockReason","from","to","masterDayStart","masterDayEnd"].map(id=>[id,root.querySelector?.("#"+id)?.value])):{};
   nav();
-  el("main").innerHTML=isMaster()?masterView():publicView();
+  root.innerHTML=isMaster()?masterView():publicView();
+  if(masterCalendar){
+    if(previousPanels.length)root.querySelectorAll("details.master-settings").forEach(x=>{x.open=openPanels.has(x.dataset.panel);});
+    if(keepFields)for(const [id,value] of Object.entries(preserved)){
+      const field=root.querySelector("#"+id);
+      if(field&&value!==undefined)field.value=value;
+    }
+  }
 }
 // One coherent server snapshot for the calendar and the selected day's slots.
 async function loadAvailability({quiet=false}={}){
