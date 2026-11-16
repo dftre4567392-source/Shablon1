@@ -446,13 +446,14 @@ test("39 fixed two-week booking period remains stable until its boundary",async(
   assert.equal(set.body.bookingRange.days,14);
   const original=h.readStore();
   assert.equal(original.booking_window_anchor,h.today());
-  const start=h.today(),end=h.addDays(13),nextStart=h.addDays(14),nextEnd=h.addDays(27);
+  const futureDates=Array.from({length:29},(_,i)=>h.addDays(i));
+  const start=futureDates[0],end=futureDates[13],nextStart=futureDates[14],nextEnd=futureDates[27];
   assert.equal(set.body.bookingRange.start,start);
   assert.equal(set.body.bookingRange.end,end);
   assert.equal(vm.runInContext("bookableDate("+JSON.stringify(end)+",__saved)",Object.assign(h.sandbox,{__saved:original})),true);
   assert.equal(vm.runInContext("bookableDate("+JSON.stringify(h.addDays(14))+",__saved)",h.sandbox),false);
   const snapshot=(offset)=>{
-    const at=h.addDays(offset)+"T12:00:00Z";
+    const at=futureDates[offset]+"T12:00:00Z";
     h.sandbox.Date=class FixedDate extends Date{
       constructor(...args){super(...(args.length?args:[at]));}
       static now(){return new Date(at).getTime();}
