@@ -68,11 +68,27 @@
 .master-settings .master-inner .field{margin:6px 0 10px}
 .master-check-title{color:#583a4f}
 @media(max-width:390px){.master-settings>summary{font-size:13px;padding:13px}.master-settings .master-inner{padding:10px 12px 14px}}
+
+/* Explicit fixed booking-window layer; colors never masquerade as available days. */
+.cal-day.range-closed:not(.chosen),.cal-day.range-closed:disabled:not(.chosen){
+  background:#f1edf2!important;color:#aaa0ab!important;
+  box-shadow:inset 0 0 0 1px #ded5df!important;
+  text-decoration:none;opacity:1!important;
+}
+.cal-day.range-closed .cal-symbol{opacity:.35}
+.cal-day.range-closed:not(.chosen):after{content:"–";position:absolute;right:4px;bottom:1px;font-size:10px}
+.legend-dot.range-closed{background:#c9c0cc}
+.range-caption{background:#f8eef5;border:1px solid #eadce5;border-radius:12px;padding:10px 12px;color:#735b6d;font-size:12px;line-height:1.45;margin:9px 0}
+.master-day-inline{padding:12px 0 3px;border-top:1px solid #eadde7;margin-top:13px}
+.master-day-inline>strong{font-size:13px}
+.master-weekday-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin:10px 0}
+.master-weekday-grid label{display:flex;flex-direction:column;align-items:center;gap:7px;font-size:11px;padding:8px 2px;border-radius:10px;background:#f8f1f7}
+.master-weekday-grid input{accent-color:#815470;width:17px;height:17px}
 </style></head><body><main class="wrap"><div class="top"><div><div class="logo">✦ BOOKCORE</div><div class="tiny">BEAUTY APPOINTMENTS</div></div><div class="circle">✿</div></div><div id="main"><div class="empty">Загружаем студию…</div></div></main><nav id="dock" class="dock"></nav><div id="modalRoot"></div><script>
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false,masterMonth:"",masterDate:"",masterCalendar:null,masterServiceId:null,masterTime:"",masterSlots:[],masterCalendarRequest:0};
+const state={masterWindowPreview:null,masterDayScope:"day",masterWeekDays:[0,1,2,3,4],public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false,masterMonth:"",masterDate:"",masterCalendar:null,masterServiceId:null,masterTime:"",masterSlots:[],masterCalendarRequest:0};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -246,11 +262,21 @@ function visibleDate(date){
   const d=new Date(date+"T12:00:00Z");
   return Number.isFinite(d.getTime())?new Intl.DateTimeFormat("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}).format(d):"";
 }
-function studioMaxDate(){
-  const day=new Date(studioToday()+"T00:00:00Z");
-  day.setUTCDate(day.getUTCDate()+([7,14,30,45].includes(Number(state.public?.bookingWindowDays))?Number(state.public.bookingWindowDays):30));
-  return day.toISOString().slice(0,10);
+function bookingRangeBounds(){
+  const preview=isMaster()&&[7,14,30,45].includes(Number(state.masterWindowPreview))?Number(state.masterWindowPreview):null;
+  const days=preview||([7,14,30,45].includes(Number(state.public?.bookingWindowDays))?Number(state.public.bookingWindowDays):30);
+  const today=studioToday();
+  const configured=preview?null:state.public?.bookingWindowAnchor;
+  const anchored=typeof configured==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(configured)&&configured<=today;
+  const anchor=anchored?configured:today;
+  const elapsed=Math.floor((Date.parse(today+"T00:00:00Z")-Date.parse(anchor+"T00:00:00Z"))/86400000);
+  const first=new Date(anchor+"T00:00:00Z");
+  first.setUTCDate(first.getUTCDate()+Math.floor(Math.max(0,elapsed)/days)*days);
+  const last=new Date(first);
+  last.setUTCDate(last.getUTCDate()+days-(anchored?1:0));
+  return {start:first.toISOString().slice(0,10),end:last.toISOString().slice(0,10),days};
 }
+function studioMaxDate(){return bookingRangeBounds().end;}
 function validCalendarDate(value){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(value)))return false;
   const d=new Date(value+"T00:00:00Z");
@@ -309,6 +335,8 @@ function calendarMarkup(mode="booking"){
   for(let day=1;day<=length;day++){
     const date=y+"-"+String(m+1).padStart(2,"0")+"-"+String(day).padStart(2,"0");
     const enabled=validCalendarDate(date);
+    const inRange=date>=studioToday()&&date<=studioMaxDate();
+    const rangeClass=inRange?" range-open":" range-closed";
     const active=(mode==="move"?rescheduling?.date:state.date)===date;
     const today=date===studioToday();
     const calendar=state.calendarInfo;
@@ -318,7 +346,7 @@ function calendarMarkup(mode="booking"){
     const blocked=status==="off";
     const symbols={off:"×",short:"◐",busy:"•",available:"✓"};
     const valid=enabled&&!blocked;
-    days+='<button type="button" class="cal-day'+(status?" state-"+status:"")+(active?" chosen":"")+(today?" today":"")+'"'+
+    days+='<button type="button" class="cal-day'+(status?" state-"+status:"")+rangeClass+(active?" chosen":"")+(today?" today":"")+'"'+
       (valid?' onclick="'+(mode==="move"?"selectMoveDate":"selectDate")+'(\''+date+'\')"':' disabled')+
       ' aria-label="'+esc(date+(item?" — "+item.label:""))+'" title="'+esc(item?.label||"")+'" aria-pressed="'+active+'">'+day+
       (status?'<span aria-hidden="true" class="cal-symbol">'+symbols[status]+'</span>':"")+'</button>';
@@ -327,8 +355,8 @@ function calendarMarkup(mode="booking"){
     '<b>'+esc(title.charAt(0).toUpperCase()+title.slice(1))+'</b>'+
     '<button type="button" class="cal-nav" onclick="changeMonth(1)"'+(next?"":" disabled")+' aria-label="Следующий месяц">›</button></div>'+
     '<div class="cal-grid">'+week+days+'</div>'+
-    '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Свободно</span><span class="legend-item"><i class="legend-dot short"></i>Сокращённый</span><span class="legend-item"><i class="legend-dot busy"></i>Мест нет</span><span class="legend-item"><i class="legend-dot off"></i>Выходной</span></div>'+
-    '<div class="cal-caption">Расписание устанавливает мастер. Запись открыта на '+esc(state.public?.bookingWindowDays||30)+' дней вперёд.</div></div>';
+    '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Свободно</span><span class="legend-item"><i class="legend-dot short"></i>Сокращённый</span><span class="legend-item"><i class="legend-dot busy"></i>Мест нет</span><span class="legend-item"><i class="legend-dot off"></i>Выходной</span><span class="legend-item"><i class="legend-dot range-closed"></i>За пределами записи</span></div>'+
+    '<div class="cal-caption">Запись открыта с '+esc(bookingRangeBounds().start)+' по '+esc(bookingRangeBounds().end)+'. Серые даты пока недоступны; следующий период откроется автоматически.</div></div>';
 }
 function slotsMarkup(){
   if(!state.serviceIds.length)return '<p class="cap">Сначала выберите одну или несколько услуг.</p>';
@@ -599,9 +627,11 @@ function masterCalendarMarkup(){
   const max= new Date(studioToday()+"T12:00:00Z");max.setUTCDate(max.getUTCDate()+45);
   const valid=day>=studioToday()&&day<=max.toISOString().slice(0,10);
   const item=n?.[day],status=item?.status||"";
+  const inRange=day>=studioToday()&&day<=bookingRangeBounds().end;
+  const rangeClass=inRange?" range-open":" range-closed";
   const mark={available:"✓",short:"◐",off:"×",busy:"•"}[status]||"";
   const current=state.masterDate===day;
-  days+='<button type="button" class="cal-day'+(status?" state-"+status:"")+(current?" chosen":"")+'"'+
+  days+='<button type="button" class="cal-day'+(status?" state-"+status:"")+rangeClass+(current?" chosen":"")+'"'+
    (valid?' onclick="selectMasterDay(\''+day+'\')"':' disabled')+
    ' aria-label="'+esc(day+(item?" — "+item.label:""))+'" title="'+esc(item?.label||"")+'">'+d+
    (mark?'<span class="cal-symbol" aria-hidden="true">'+mark+'</span>':"")+'</button>';
@@ -611,7 +641,18 @@ function masterCalendarMarkup(){
  '<div class="cal-grid">'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(x=>'<span class="cal-weekday">'+x+'</span>').join("")+days+'</div>'+
  '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Есть время</span>'+
  '<span class="legend-item"><i class="legend-dot short"></i>Короткий день</span><span class="legend-item"><i class="legend-dot busy"></i>Всё занято</span>'+
- '<span class="legend-item"><i class="legend-dot off"></i>Выходной</span></div></div>';
+ '<span class="legend-item"><i class="legend-dot off"></i>Выходной</span>'+
+ '<span class="legend-item"><i class="legend-dot range-closed"></i>Вне периода записи</span></div></div>';
+}
+function masterScopeChanged(){
+ state.masterDayScope=el("masterApplyScope")?.value==="week"?"week":"day";
+ const content=el("masterWeekControls");if(content)content.hidden=state.masterDayScope!=="week";
+ const note=el("masterDaySave");if(note)note.textContent=state.masterDayScope==="week"?"Сохранить неделю":"Сохранить день";
+}
+function masterWeekToggle(index,checked){
+ const selected=new Set(state.masterWeekDays);
+ if(checked)selected.add(index);else selected.delete(index);
+ state.masterWeekDays=[...selected].sort((a,b)=>a-b);
 }
 function masterDayModeChanged(){
  const value=el("masterDayMode")?.value;
@@ -637,18 +678,31 @@ function masterCalendarView(){
  const windowDays=state.master?.bookingWindowDays||state.public?.bookingWindowDays||30;
  return '<div class="section"><h2>Календарь мастера</h2></div>'+
  '<details class="card master-settings" data-panel="window"><summary>⚙ Период записи · '+windowDays+' дней</summary><div class="master-inner"><h3>На сколько дней открывать запись?</h3><p class="sub">Клиенты смогут выбирать только даты в установленном вами периоде. За его пределами запись закрыта.</p>'+
- '<select id="bookingWindow" class="field" aria-label="Период открытия записи">'+
+ '<select id="bookingWindow" class="field" aria-label="Период открытия записи" onchange="previewMasterWindow()">'+
  [[7,"На неделю"],[14,"На две недели"],[30,"На месяц"],[45,"На 45 дней"]].map(x=>'<option value="'+x[0]+'"'+(Number(windowDays)===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
  '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div></details>'+
- '<div class="section"><h2>Даты и рабочие часы</h2></div>'+masterCalendarMarkup()+
+ '<div class="section"><h2>Даты и рабочие часы</h2></div>'+
+ '<div class="range-caption" id="masterRangeCaption">Период записи: '+esc(bookingRangeBounds().start)+' — '+esc(bookingRangeBounds().end)+'. Серые даты недоступны клиенту. Мастер может заранее настроить их рабочее расписание.</div>'+
+ '<div id="masterCalendarHost">'+masterCalendarMarkup()+'</div>'+
  '<details class="card master-settings" data-panel="day" open><summary>✎ Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</summary><div class="master-inner">'+
  '<p class="sub">Можно открыть дополнительный рабочий день, сделать выходной или сократить смену. Уже подтверждённые визиты нельзя случайно удалить.</p>'+
  '<label class="cap" for="masterDayMode">Как работает мастер?</label>'+
  '<select class="field" id="masterDayMode" onchange="masterDayModeChanged()">'+
  [["normal","Полный рабочий день"],["short","Сокращённый рабочий день"],["off","Выходной"]].map(x=>'<option value="'+x[0]+'"'+(kind===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
- '</select><div class="grid"><div><label class="cap">Начало рабочего дня</label><input id="masterDayStart" class="field" type="time" value="'+esc(shift.start_time||"10:00")+'"'+(kind==="off"?" disabled":"")+'/></div>'+
+ '</select><label class="cap" for="masterApplyScope">Применить настройки</label>'+
+ '<select id="masterApplyScope" class="field" onchange="masterScopeChanged()"><option value="day"'+(state.masterDayScope!=="week"?" selected":"")+'>Только выбранный день</option><option value="week"'+(state.masterDayScope==="week"?" selected":"")+'>Вся выбранная неделя</option></select>'+
+ '<div id="masterWeekControls"'+(state.masterDayScope==="week"?"":" hidden")+'><p class="sub">Выберите рабочие дни этой недели. Неотмеченные будут выходными.</p>'+
+ '<div class="master-weekday-grid">'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map((day,i)=>'<label>'+day+'<input type="checkbox" '+(state.masterWeekDays.includes(i)?"checked":"")+' onchange="masterWeekToggle('+i+',this.checked)"/></label>').join("")+'</div></div>'+
+ '<div class="grid"><div><label class="cap">Начало рабочего дня</label><input id="masterDayStart" class="field" type="time" value="'+esc(shift.start_time||"10:00")+'"'+(kind==="off"?" disabled":"")+'/></div>'+
  '<div><label class="cap">Конец рабочего дня</label><input id="masterDayEnd" class="field" type="time" value="'+esc(shift.end_time||"19:00")+'"'+(kind==="off"?" disabled":"")+'/></div></div>'+
- '<button class="btn full" onclick="saveMasterDay()">Сохранить этот день</button></div></details>'+
+ '<div class="master-day-inline"><strong>☕ Перерыв или обед</strong><p class="sub">Необязательно. Укажите время и причину, если нужен перерыв. Он сохранится вместе с рабочим днём или для выбранных рабочих дней недели.</p>'+
+ '<div class="grid"><input id="from" class="field" type="time" aria-label="Начало перерыва"/>'+
+ '<input id="to" class="field" type="time" aria-label="Конец перерыва"/></div>'+
+ '<input id="blockReason" class="field" placeholder="Причина, например: обед"/>'+
+ (blocks.length?'<p class="sub">Сохранённые перерывы выбранного дня:</p>'+blocks.map(b=>
+ '<div class="item row"><div><b>'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</b><div class="sub">'+esc(b.reason||"Без причины")+'</div></div>'+
+ '<button type="button" class="btn line" onclick="unblock('+Number(b.id)+')">Удалить</button></div>').join(""):"")+
+ '</div><button id="masterDaySave" class="btn full" onclick="saveMasterDay()">'+(state.masterDayScope==="week"?"Сохранить неделю":"Сохранить день")+'</button></div></details>'+
  '<details class="card master-settings" data-panel="manual"><summary>＋ Записать клиента вручную</summary><div class="master-inner"><p class="sub">На '+esc(date)+'</p>'+
  '<p class="sub">Выберите услугу и свободное время прямо в календаре — так же, как это делает клиент.</p>'+
  '<input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/>'+
@@ -658,30 +712,37 @@ function masterCalendarView(){
  '<input id="manualDate" type="hidden" value="'+esc(date)+'"/>'+
  '<input id="manualTime" type="hidden" value="'+esc(state.masterTime)+'"/>'+
  '<button class="btn full" style="margin-top:13px" onclick="createManual()">Записать клиента</button></div></details>'+
- '<details class="card master-settings" data-panel="break"><summary>☕ Добавить перерыв</summary><div class="master-inner">'+
- '<p class="sub">Для перерыва укажите начало и конец. Чтобы закрыть весь день, сохраните его как выходной выше.</p>'+
- '<input id="blockDay" type="hidden" value="'+esc(date)+'"/>'+
- '<div class="grid"><input id="from" class="field" type="time" aria-label="Начало перерыва"/>'+
- '<input id="to" class="field" type="time" aria-label="Конец перерыва"/></div>'+
- '<input id="blockReason" class="field" placeholder="Причина, например: обед"/>'+
- '<button class="btn line full" onclick="blockDay()">Добавить перерыв</button></div></details>'+
- (blocks.length?'<div class="section"><h2>Перерывы и блокировки</h2></div>'+blocks.map(b=>
- '<div class="item row"><div><b>'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</b><div class="sub">'+esc(b.reason||"Без причины")+'</div></div>'+
- '<button class="btn line" onclick="unblock('+Number(b.id)+')">Удалить</button></div>').join(""):"")+
  '<div class="section"><h2>Записи на выбранную дату</h2></div>'+
  (todayRows.length?todayRows.map(bookingCard).join(""):'<div class="empty">На этот день записей нет</div>')+
  '<button class="btn line full" onclick="loadMaster()">Обновить календарь</button>';
 }
-async function loadMasterCalendar(){
+async function loadMasterCalendar({quiet=false}={}){
  if(!isMaster()||state.page!=="calendar")return;
  const month=state.masterMonth||studioToday().slice(0,7);
  const request=++state.masterCalendarRequest;
- try{const service=Number(state.masterServiceId||state.public?.services?.[0]?.id||0);
- const data=await api("/api/master/calendar?month="+encodeURIComponent(month)+"&services="+encodeURIComponent(service||""));
-   if(request!==state.masterCalendarRequest||state.page!=="calendar")return;
-   state.masterCalendar={month,days:data.days||{},overrides:data.overrides||[]};
-   render();
- }catch(error){console.warn("BOOKCORE_MASTER_CALENDAR_FAILED",error);fail("Не удалось загрузить календарь: "+error.message);}
+ try{
+   const service=Number(state.masterServiceId||state.public?.services?.[0]?.id||0);
+   const data=await api("/api/master/calendar?month="+encodeURIComponent(month)+"&services="+encodeURIComponent(service||""));
+   if(request!==state.masterCalendarRequest||state.page!=="calendar"||month!==state.masterMonth)return;
+   const incoming={month,days:data.days||{},overrides:data.overrides||[]};
+   const changed=JSON.stringify(state.masterCalendar)!==JSON.stringify(incoming);
+   state.masterCalendar=incoming;
+   if(state.public&&data.bookingRange){
+     state.public.bookingWindowDays=data.windowDays||state.public.bookingWindowDays;
+     state.public.bookingWindowAnchor=data.bookingRange.start;
+   }
+   if(!quiet){render();return;}
+   if(changed){
+     // Only redraw when calendar data actually changed; preserving the edit form.
+     const host=el("masterCalendarHost");
+     if(host)host.innerHTML=masterCalendarMarkup();
+     const caption=el("masterRangeCaption");
+     if(caption)caption.textContent="Период записи: "+bookingRangeBounds().start+" — "+bookingRangeBounds().end+". Серые даты недоступны клиенту.";
+   }
+ }catch(error){
+   console.warn("BOOKCORE_MASTER_CALENDAR_FAILED",error);
+   if(!quiet)fail("Не удалось загрузить календарь: "+error.message);
+ }
 }
 async function loadMasterSlots(){
  if(!isMaster()||state.page!=="calendar")return;
@@ -711,18 +772,41 @@ function shiftMasterMonth(delta){
  if(state.masterDate<today)state.masterDate=today;
  render();void loadMasterCalendar();void loadMasterSlots();
 }
+function previewMasterWindow(){
+  const days=Number(el("bookingWindow")?.value);
+  state.masterWindowPreview=[7,14,30,45].includes(days)?days:null;
+  const caption=el("masterRangeCaption");
+  const range=bookingRangeBounds();
+  if(caption)caption.textContent="Предпросмотр: "+range.start+" — "+range.end+". Серые даты будут недоступны клиенту после сохранения.";
+  const calendar=el("masterCalendarHost");
+  if(calendar)calendar.innerHTML=masterCalendarMarkup();
+}
 async function saveMasterWindow(){
  const days=Number(el("bookingWindow")?.value);
- try{await api("/api/master/window",{method:"POST",body:JSON.stringify({days})});
-   state.public.bookingWindowDays=days;await loadMaster();fail("Готово: запись открыта на "+days+" дней.");
+ try{const result=await api("/api/master/window",{method:"POST",body:JSON.stringify({days})});
+   state.public.bookingWindowDays=days;
+   state.public.bookingWindowAnchor=result.bookingRange?.start||studioToday();
+   state.masterWindowPreview=null;
+   await loadMaster();
+   fail("Готово: фиксированный период записи — "+result.bookingRange.start+" — "+result.bookingRange.end);
  }catch(e){fail("Не удалось изменить период: "+e.message)}
 }
 async function saveMasterDay(){
  const status=el("masterDayMode")?.value,active=status!=="off";
  const start=el("masterDayStart")?.value||"10:00",end=el("masterDayEnd")?.value||"19:00";
- try{await api("/api/master/day",{method:"POST",body:JSON.stringify({day:state.masterDate,active,start,end})});
-   await loadMaster();fail("Рабочее время выбранного дня сохранено.");
- }catch(e){fail("Не удалось сохранить день: "+e.message)}
+ const breakStart=el("from")?.value||"",breakEnd=el("to")?.value||"";
+ const scope=state.masterDayScope==="week"?"week":"day";
+ if((breakStart&&!breakEnd)||(!breakStart&&breakEnd))return fail("Укажите начало и конец перерыва либо оставьте оба поля пустыми.");
+ if(!active&&(breakStart||breakEnd))return fail("Для выходного дня перерыв не требуется.");
+ if(scope==="week"&&active&&!state.masterWeekDays.length)return fail("Выберите хотя бы один рабочий день недели.");
+ try{
+   await api("/api/master/day/setup",{method:"POST",body:JSON.stringify({
+     day:state.masterDate,scope,weekdays:state.masterWeekDays,active,start,end,
+     breakStart,breakEnd,reason:el("blockReason")?.value||"Обед"
+   })});
+   await loadMaster();
+   fail(scope==="week"?"Расписание выбранной недели сохранено.":"Рабочий день и перерыв сохранены.");
+ }catch(e){fail("Не удалось сохранить расписание: "+e.message)}
 }
 
 function masterSetupChecklist(){
@@ -845,8 +929,17 @@ async function loadAvailability({quiet=false}={}){
     if(request!==state.availabilityRequest||state.page!=="booking"||
       visibleMonth().slice(0,7)+"|"+state.serviceIds.join(",")!==key||
       (state.serviceIds.length?state.date:"")+"|"+state.serviceIds.join(",")!==selection)return;
+    const previousRange=bookingRangeBounds().end;
+    if(state.public){
+      if([7,14,30,45].includes(Number(response.bookingWindowDays)))state.public.bookingWindowDays=Number(response.bookingWindowDays);
+      state.public.bookingWindowAnchor=response.bookingWindowAnchor||null;
+    }
+    const changedRange=previousRange!==bookingRangeBounds().end;
+    if(changedRange&&state.date&&!validCalendarDate(state.date)){
+      state.date="";state.time="";state.slots=[];state.availabilityAlert="Период записи обновился. Выберите новую дату.";
+    }
     const oldSlots=state.slots;
-    const nextSlots=date?response.slots||[]:[];
+    const nextSlots=state.date?response.slots||[]:[];
     const changed=JSON.stringify(nextSlots)!==JSON.stringify(oldSlots);
     const previousAlert=state.availabilityAlert;
     const taken=!!state.time&&!nextSlots.includes(state.time);
@@ -865,7 +958,7 @@ async function loadAvailability({quiet=false}={}){
     }else{
       state.availabilityAlert="";
     }
-    if(!quiet||taken){
+    if(!quiet||taken||changedRange){
       // Full rendering is necessary only on explicit selection or when a selected
       // slot was invalidated; keep the user's scroll position intact.
       const position=window.scrollY;
@@ -1047,7 +1140,10 @@ async function loadMaster(){
     state.master=result;
     if(!state.masterMonth)state.masterMonth=studioToday().slice(0,7);
     if(!state.masterDate)state.masterDate=studioToday();
-    if(state.public)state.public.bookingWindowDays=result.bookingWindowDays||30;
+    if(state.public){
+      state.public.bookingWindowDays=result.bookingWindowDays||30;
+      state.public.bookingWindowAnchor=result.bookingWindowAnchor||null;
+    }
   }catch(error){
     if(sequence===masterLoadSequence)fail("Не удалось загрузить кабинет: "+error.message);
   }finally{
@@ -1082,9 +1178,53 @@ async function createService(){
 }
 function onboard(){if(!initial){fail("Откройте приложение через Telegram-бота");return;}el("modalRoot").innerHTML='<div class="overlay"><div class="modal"><div style="font-size:34px;text-align:center">✿</div><h2 style="text-align:center">Давайте знакомиться!</h2><p class="sub" style="text-align:center">Укажите ваше настоящее имя, чтобы мастер знал, кого ожидать на процедуре.</p><input class="field" id="newName" maxlength="50" placeholder="Например, Анастасия"/><button class="btn full" onclick="saveName()">Продолжить</button><p class="cap" style="text-align:center">Без паспортов и данных банковских карт</p></div></div>';}
 async function saveName(){const name=el("newName").value.trim();if(name.length<2)return fail("Введите имя, не менее двух символов");try{await api("/api/name",{method:"POST",body:JSON.stringify({name})});state.me.clientName=name;state.me.needsName=false;el("modalRoot").innerHTML="";render()}catch(e){fail(e.message)}}
+// Local day-boundary checks are cheap; network checks are throttled and only run while visible.
+let lastObservedStudioDay="",lastMasterSyncAt=0,liveMasterSyncBusy=false;
+async function liveCalendarTick(force=false){
+  if(document.visibilityState==="hidden"||!state.public)return;
+  const today=studioToday();
+  const newDay=lastObservedStudioDay&&lastObservedStudioDay!==today;
+  lastObservedStudioDay=today;
+  if(newDay){
+    if(isMaster()&&state.page==="calendar"&&state.masterDate<today){
+      state.masterDate=today;state.masterMonth=today.slice(0,7);
+    }
+    if(!isMaster()&&state.date&&!validCalendarDate(state.date)){
+      state.date="";state.time="";state.slots=[];
+    }
+    render();
+  }
+  if(isMaster()&&state.page==="calendar"&&!state.loading){
+    if(!force&&!newDay&&Date.now()-lastMasterSyncAt<12000)return;
+    if(liveMasterSyncBusy)return;
+    liveMasterSyncBusy=true;lastMasterSyncAt=Date.now();
+    try{
+      const incoming=await api("/api/master");
+      if(state.page!=="calendar")return;
+      const relevant=x=>JSON.stringify({
+        bookings:x?.bookings,blocks:x?.blocks,services:x?.services,
+        schedule:x?.schedule,bookingWindowDays:x?.bookingWindowDays,
+        bookingWindowAnchor:x?.bookingWindowAnchor
+      });
+      const changed=relevant(incoming)!==relevant(state.master);
+      if(changed){
+        state.master=incoming;
+        state.public.bookingWindowDays=incoming.bookingWindowDays||state.public.bookingWindowDays;
+        state.public.bookingWindowAnchor=incoming.bookingWindowAnchor||null;
+        render();
+        void loadMasterSlots();
+      }
+      await loadMasterCalendar({quiet:true});
+    }catch(error){console.warn("BOOKCORE_LIVE_MASTER_REFRESH_FAILED",String(error));}
+    finally{liveMasterSyncBusy=false;}
+  }else if(!isMaster()&&state.page==="booking"&&(force||newDay)){
+    await refreshAvailability();
+  }
+}
 setInterval(updateRestoreCountdowns,1000);
 setInterval(()=>{void refreshAvailability()},11000+Math.floor(Math.random()*4000));
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void refreshAvailability();});
-window.addEventListener("focus",()=>{void refreshAvailability();});
+setInterval(()=>{void liveCalendarTick()},3000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void liveCalendarTick(true);});
+window.addEventListener("focus",()=>{void liveCalendarTick(true);});
 init();
 </script></body></html>
