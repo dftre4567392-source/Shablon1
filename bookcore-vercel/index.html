@@ -88,7 +88,7 @@
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={masterDayScope:"day",masterWeekDays:[0,1,2,3,4],public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false,masterMonth:"",masterDate:"",masterCalendar:null,masterServiceId:null,masterTime:"",masterSlots:[],masterCalendarRequest:0};
+const state={masterWindowPreview:null,masterDayScope:"day",masterWeekDays:[0,1,2,3,4],public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false,masterMonth:"",masterDate:"",masterCalendar:null,masterServiceId:null,masterTime:"",masterSlots:[],masterCalendarRequest:0};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -263,9 +263,10 @@ function visibleDate(date){
   return Number.isFinite(d.getTime())?new Intl.DateTimeFormat("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}).format(d):"";
 }
 function bookingRangeBounds(){
-  const days=[7,14,30,45].includes(Number(state.public?.bookingWindowDays))?Number(state.public.bookingWindowDays):30;
+  const preview=isMaster()&&[7,14,30,45].includes(Number(state.masterWindowPreview))?Number(state.masterWindowPreview):null;
+  const days=preview||([7,14,30,45].includes(Number(state.public?.bookingWindowDays))?Number(state.public.bookingWindowDays):30);
   const today=studioToday();
-  const configured=state.public?.bookingWindowAnchor;
+  const configured=preview?null:state.public?.bookingWindowAnchor;
   const anchored=typeof configured==="string"&&/^\\d{4}-\\d{2}-\\d{2}$/.test(configured)&&configured<=today;
   const anchor=anchored?configured:today;
   const elapsed=Math.floor((Date.parse(today+"T00:00:00Z")-Date.parse(anchor+"T00:00:00Z"))/86400000);
@@ -677,7 +678,7 @@ function masterCalendarView(){
  const windowDays=state.master?.bookingWindowDays||state.public?.bookingWindowDays||30;
  return '<div class="section"><h2>Календарь мастера</h2></div>'+
  '<details class="card master-settings" data-panel="window"><summary>⚙ Период записи · '+windowDays+' дней</summary><div class="master-inner"><h3>На сколько дней открывать запись?</h3><p class="sub">Клиенты смогут выбирать только даты в установленном вами периоде. За его пределами запись закрыта.</p>'+
- '<select id="bookingWindow" class="field" aria-label="Период открытия записи">'+
+ '<select id="bookingWindow" class="field" aria-label="Период открытия записи" onchange="previewMasterWindow()">'+
  [[7,"На неделю"],[14,"На две недели"],[30,"На месяц"],[45,"На 45 дней"]].map(x=>'<option value="'+x[0]+'"'+(Number(windowDays)===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
  '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div></details>'+
  '<div class="section"><h2>Даты и рабочие часы</h2></div>'+
@@ -771,11 +772,21 @@ function shiftMasterMonth(delta){
  if(state.masterDate<today)state.masterDate=today;
  render();void loadMasterCalendar();void loadMasterSlots();
 }
+function previewMasterWindow(){
+  const days=Number(el("bookingWindow")?.value);
+  state.masterWindowPreview=[7,14,30,45].includes(days)?days:null;
+  const caption=el("masterRangeCaption");
+  const range=bookingRangeBounds();
+  if(caption)caption.textContent="Предпросмотр: "+range.start+" — "+range.end+". Серые даты будут недоступны клиенту после сохранения.";
+  const calendar=el("masterCalendarHost");
+  if(calendar)calendar.innerHTML=masterCalendarMarkup();
+}
 async function saveMasterWindow(){
  const days=Number(el("bookingWindow")?.value);
  try{const result=await api("/api/master/window",{method:"POST",body:JSON.stringify({days})});
    state.public.bookingWindowDays=days;
    state.public.bookingWindowAnchor=result.bookingRange?.start||studioToday();
+   state.masterWindowPreview=null;
    await loadMaster();
    fail("Готово: фиксированный период записи — "+result.bookingRange.start+" — "+result.bookingRange.end);
  }catch(e){fail("Не удалось изменить период: "+e.message)}
