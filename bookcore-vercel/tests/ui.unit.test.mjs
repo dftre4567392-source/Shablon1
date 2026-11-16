@@ -22,7 +22,7 @@ function environment({now="2026-11-13T10:00:00Z",role="client",ready=true}={}){
   const context={
     window:{Telegram:{WebApp:{initData:"test-init-data",ready(){},expand(){}}},addEventListener(){},matchMedia:()=>({matches:false})},
     document:{getElementById:element,addEventListener(){},visibilityState:"visible"},location:{origin:"https://bookcore-test.invalid"},
-    console,URL,Intl,Date:TestDate,Blob,TextDecoder,TextEncoder,AbortSignal,
+    console,URL,URLSearchParams,Intl,Date:TestDate,Blob,TextDecoder,TextEncoder,AbortSignal,
     setTimeout,clearTimeout,setInterval:()=>0,clearInterval:()=>{},alert:()=>{},confirm:()=>true,
     fetch:async(url,options)=>{
       requests.push({url:String(url),options});
