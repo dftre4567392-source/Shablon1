@@ -23,7 +23,7 @@ function environment({now="2026-11-13T10:00:00Z",role="client",ready=true}={}){
     window:{Telegram:{WebApp:{initData:"test-init-data",ready(){},expand(){}}}},
     document:{getElementById:element},location:{origin:"https://bookcore-test.invalid"},
     console,URL,Intl,Date:TestDate,Blob,TextDecoder,TextEncoder,AbortSignal,
-    setTimeout,clearTimeout,alert:()=>{},confirm:()=>true,
+    setTimeout,clearTimeout,setInterval:()=>0,clearInterval:()=>{},alert:()=>{},confirm:()=>true,
     fetch:async(url,options)=>{
       requests.push({url:String(url),options});
       const route=new URL(String(url)).searchParams.get("route");
