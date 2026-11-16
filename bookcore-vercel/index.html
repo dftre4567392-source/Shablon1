@@ -355,8 +355,8 @@ function calendarMarkup(mode="booking"){
     '<b>'+esc(title.charAt(0).toUpperCase()+title.slice(1))+'</b>'+
     '<button type="button" class="cal-nav" onclick="changeMonth(1)"'+(next?"":" disabled")+' aria-label="Следующий месяц">›</button></div>'+
     '<div class="cal-grid">'+week+days+'</div>'+
-    '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Свободно</span><span class="legend-item"><i class="legend-dot short"></i>Сокращённый</span><span class="legend-item"><i class="legend-dot busy"></i>Мест нет</span><span class="legend-item"><i class="legend-dot off"></i>Выходной</span></div>'+
-    '<div class="cal-caption">Расписание устанавливает мастер. Запись открыта на '+esc(state.public?.bookingWindowDays||30)+' дней вперёд.</div></div>';
+    '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Свободно</span><span class="legend-item"><i class="legend-dot short"></i>Сокращённый</span><span class="legend-item"><i class="legend-dot busy"></i>Мест нет</span><span class="legend-item"><i class="legend-dot off"></i>Выходной</span><span class="legend-item"><i class="legend-dot range-closed"></i>За пределами записи</span></div>'+
+    '<div class="cal-caption">Запись открыта с '+esc(bookingRangeBounds().start)+' по '+esc(bookingRangeBounds().end)+'. Серые даты пока недоступны; следующий период откроется автоматически.</div></div>';
 }
 function slotsMarkup(){
   if(!state.serviceIds.length)return '<p class="cap">Сначала выберите одну или несколько услуг.</p>';
