@@ -134,7 +134,7 @@ function route(p){
   if(p==="booking"){void loadWaitlist();void loadAvailability();}
 
 }
-function nav(){const n=isMaster()?[["overview","⌂","Главная"],["calendar","▦","Записи"],["clients","♧","Клиенты"],["analytics","▥","Отчёты"],["settings","⚙","Услуги"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
+function nav(){const n=isMaster()?[["overview","⌂","Главная"],["calendar","▦","Календарь"],["clients","♧","Клиенты"],["analytics","▥","Отчёты"],["settings","⚙","Услуги"]]:[["home","⌂","Главная"],["booking","▦","Запись"],["visits","♡","Мои"],["profile","♙","Профиль"]];el("dock").innerHTML=n.map(x=>'<button class="'+(state.page===x[0]?"active":"")+'" onclick="route(\''+x[0]+'\')"><span class="ico">'+x[1]+'</span>'+x[2]+'</button>').join("");}
 function selectedServices(){
   return (state.public?.services||[]).filter(s=>state.serviceIds.includes(s.id));
 }
