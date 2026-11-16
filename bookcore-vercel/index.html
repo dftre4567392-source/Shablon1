@@ -267,7 +267,7 @@ function bookingRangeBounds(){
   const days=preview||([7,14,30,45].includes(Number(state.public?.bookingWindowDays))?Number(state.public.bookingWindowDays):30);
   const today=studioToday();
   const configured=preview?null:state.public?.bookingWindowAnchor;
-  const anchored=typeof configured==="string"&&/^\\d{4}-\\d{2}-\\d{2}$/.test(configured)&&configured<=today;
+  const anchored=typeof configured==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(configured)&&configured<=today;
   const anchor=anchored?configured:today;
   const elapsed=Math.floor((Date.parse(today+"T00:00:00Z")-Date.parse(anchor+"T00:00:00Z"))/86400000);
   const first=new Date(anchor+"T00:00:00Z");
