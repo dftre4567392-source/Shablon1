@@ -640,7 +640,18 @@ function masterCalendarMarkup(){
  '<div class="cal-grid">'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(x=>'<span class="cal-weekday">'+x+'</span>').join("")+days+'</div>'+
  '<div class="calendar-legend"><span class="legend-item"><i class="legend-dot available"></i>Есть время</span>'+
  '<span class="legend-item"><i class="legend-dot short"></i>Короткий день</span><span class="legend-item"><i class="legend-dot busy"></i>Всё занято</span>'+
- '<span class="legend-item"><i class="legend-dot off"></i>Выходной</span></div></div>';
+ '<span class="legend-item"><i class="legend-dot off"></i>Выходной</span>'+
+ '<span class="legend-item"><i class="legend-dot range-closed"></i>Вне периода записи</span></div></div>';
+}
+function masterScopeChanged(){
+ state.masterDayScope=el("masterApplyScope")?.value==="week"?"week":"day";
+ const content=el("masterWeekControls");if(content)content.hidden=state.masterDayScope!=="week";
+ const note=el("masterDaySave");if(note)note.textContent=state.masterDayScope==="week"?"Сохранить неделю":"Сохранить день";
+}
+function masterWeekToggle(index,checked){
+ const selected=new Set(state.masterWeekDays);
+ if(checked)selected.add(index);else selected.delete(index);
+ state.masterWeekDays=[...selected].sort((a,b)=>a-b);
 }
 function masterDayModeChanged(){
  const value=el("masterDayMode")?.value;
@@ -669,15 +680,27 @@ function masterCalendarView(){
  '<select id="bookingWindow" class="field" aria-label="Период открытия записи">'+
  [[7,"На неделю"],[14,"На две недели"],[30,"На месяц"],[45,"На 45 дней"]].map(x=>'<option value="'+x[0]+'"'+(Number(windowDays)===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
  '</select><button class="btn line full" onclick="saveMasterWindow()">Сохранить период записи</button></div></details>'+
- '<div class="section"><h2>Даты и рабочие часы</h2></div>'+masterCalendarMarkup()+
+ '<div class="section"><h2>Даты и рабочие часы</h2></div>'+
+ '<div class="range-caption">Период записи: '+esc(bookingRangeBounds().start)+' — '+esc(bookingRangeBounds().end)+'. Серые даты недоступны клиенту. Мастер может заранее настроить их рабочее расписание.</div>'+masterCalendarMarkup()+
  '<details class="card master-settings" data-panel="day" open><summary>✎ Настроить '+esc(new Date(date+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long",timeZone:"UTC"}))+'</summary><div class="master-inner">'+
  '<p class="sub">Можно открыть дополнительный рабочий день, сделать выходной или сократить смену. Уже подтверждённые визиты нельзя случайно удалить.</p>'+
  '<label class="cap" for="masterDayMode">Как работает мастер?</label>'+
  '<select class="field" id="masterDayMode" onchange="masterDayModeChanged()">'+
  [["normal","Полный рабочий день"],["short","Сокращённый рабочий день"],["off","Выходной"]].map(x=>'<option value="'+x[0]+'"'+(kind===x[0]?" selected":"")+'>'+x[1]+'</option>').join("")+
- '</select><div class="grid"><div><label class="cap">Начало рабочего дня</label><input id="masterDayStart" class="field" type="time" value="'+esc(shift.start_time||"10:00")+'"'+(kind==="off"?" disabled":"")+'/></div>'+
+ '</select><label class="cap" for="masterApplyScope">Применить настройки</label>'+
+ '<select id="masterApplyScope" class="field" onchange="masterScopeChanged()"><option value="day"'+(state.masterDayScope!=="week"?" selected":"")+'>Только выбранный день</option><option value="week"'+(state.masterDayScope==="week"?" selected":"")+'>Вся выбранная неделя</option></select>'+
+ '<div id="masterWeekControls"'+(state.masterDayScope==="week"?"":" hidden")+'><p class="sub">Выберите рабочие дни этой недели. Неотмеченные будут выходными.</p>'+
+ '<div class="master-weekday-grid">'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map((day,i)=>'<label>'+day+'<input type="checkbox" '+(state.masterWeekDays.includes(i)?"checked":"")+' onchange="masterWeekToggle('+i+',this.checked)"/></label>').join("")+'</div></div>'+
+ '<div class="grid"><div><label class="cap">Начало рабочего дня</label><input id="masterDayStart" class="field" type="time" value="'+esc(shift.start_time||"10:00")+'"'+(kind==="off"?" disabled":"")+'/></div>'+
  '<div><label class="cap">Конец рабочего дня</label><input id="masterDayEnd" class="field" type="time" value="'+esc(shift.end_time||"19:00")+'"'+(kind==="off"?" disabled":"")+'/></div></div>'+
- '<button class="btn full" onclick="saveMasterDay()">Сохранить этот день</button></div></details>'+
+ '<div class="master-day-inline"><strong>☕ Перерыв или обед</strong><p class="sub">Необязательно. Укажите время и причину, если нужен перерыв. Он сохранится вместе с рабочим днём или для выбранных рабочих дней недели.</p>'+
+ '<div class="grid"><input id="from" class="field" type="time" aria-label="Начало перерыва"/>'+
+ '<input id="to" class="field" type="time" aria-label="Конец перерыва"/></div>'+
+ '<input id="blockReason" class="field" placeholder="Причина, например: обед"/>'+
+ (blocks.length?'<p class="sub">Сохранённые перерывы выбранного дня:</p>'+blocks.map(b=>
+ '<div class="item row"><div><b>'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</b><div class="sub">'+esc(b.reason||"Без причины")+'</div></div>'+
+ '<button type="button" class="btn line" onclick="unblock('+Number(b.id)+')">Удалить</button></div>').join(""):"")+
+ '</div><button id="masterDaySave" class="btn full" onclick="saveMasterDay()">'+(state.masterDayScope==="week"?"Сохранить неделю":"Сохранить день")+'</button></div></details>'+
  '<details class="card master-settings" data-panel="manual"><summary>＋ Записать клиента вручную</summary><div class="master-inner"><p class="sub">На '+esc(date)+'</p>'+
  '<p class="sub">Выберите услугу и свободное время прямо в календаре — так же, как это делает клиент.</p>'+
  '<input id="manualName" class="field" placeholder="Имя клиента" maxlength="50"/>'+
@@ -687,16 +710,6 @@ function masterCalendarView(){
  '<input id="manualDate" type="hidden" value="'+esc(date)+'"/>'+
  '<input id="manualTime" type="hidden" value="'+esc(state.masterTime)+'"/>'+
  '<button class="btn full" style="margin-top:13px" onclick="createManual()">Записать клиента</button></div></details>'+
- '<details class="card master-settings" data-panel="break"><summary>☕ Добавить перерыв</summary><div class="master-inner">'+
- '<p class="sub">Для перерыва укажите начало и конец. Чтобы закрыть весь день, сохраните его как выходной выше.</p>'+
- '<input id="blockDay" type="hidden" value="'+esc(date)+'"/>'+
- '<div class="grid"><input id="from" class="field" type="time" aria-label="Начало перерыва"/>'+
- '<input id="to" class="field" type="time" aria-label="Конец перерыва"/></div>'+
- '<input id="blockReason" class="field" placeholder="Причина, например: обед"/>'+
- '<button class="btn line full" onclick="blockDay()">Добавить перерыв</button></div></details>'+
- (blocks.length?'<div class="section"><h2>Перерывы и блокировки</h2></div>'+blocks.map(b=>
- '<div class="item row"><div><b>'+(b.start_time?esc(b.start_time)+'–'+esc(b.end_time):"Весь день")+'</b><div class="sub">'+esc(b.reason||"Без причины")+'</div></div>'+
- '<button class="btn line" onclick="unblock('+Number(b.id)+')">Удалить</button></div>').join(""):"")+
  '<div class="section"><h2>Записи на выбранную дату</h2></div>'+
  (todayRows.length?todayRows.map(bookingCard).join(""):'<div class="empty">На этот день записей нет</div>')+
  '<button class="btn line full" onclick="loadMaster()">Обновить календарь</button>';
@@ -749,9 +762,19 @@ async function saveMasterWindow(){
 async function saveMasterDay(){
  const status=el("masterDayMode")?.value,active=status!=="off";
  const start=el("masterDayStart")?.value||"10:00",end=el("masterDayEnd")?.value||"19:00";
- try{await api("/api/master/day",{method:"POST",body:JSON.stringify({day:state.masterDate,active,start,end})});
-   await loadMaster();fail("Рабочее время выбранного дня сохранено.");
- }catch(e){fail("Не удалось сохранить день: "+e.message)}
+ const breakStart=el("from")?.value||"",breakEnd=el("to")?.value||"";
+ const scope=state.masterDayScope==="week"?"week":"day";
+ if((breakStart&&!breakEnd)||(!breakStart&&breakEnd))return fail("Укажите начало и конец перерыва либо оставьте оба поля пустыми.");
+ if(!active&&(breakStart||breakEnd))return fail("Для выходного дня перерыв не требуется.");
+ if(scope==="week"&&active&&!state.masterWeekDays.length)return fail("Выберите хотя бы один рабочий день недели.");
+ try{
+   await api("/api/master/day/setup",{method:"POST",body:JSON.stringify({
+     day:state.masterDate,scope,weekdays:state.masterWeekDays,active,start,end,
+     breakStart,breakEnd,reason:el("blockReason")?.value||"Обед"
+   })});
+   await loadMaster();
+   fail(scope==="week"?"Расписание выбранной недели сохранено.":"Рабочий день и перерыв сохранены.");
+ }catch(e){fail("Не удалось сохранить расписание: "+e.message)}
 }
 
 function masterSetupChecklist(){
