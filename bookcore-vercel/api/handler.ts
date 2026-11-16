@@ -598,7 +598,7 @@ async function execute(req){
     const {state}=await load();
     const dayStates=calendarDays(state,month,services);
     const available=date?slots(state,date,services):[];
-    return respond({month,date,services,bookingWindowDays:bookingWindow(state),bookingRange:bookingRange(state),days:dayStates.days,slots:available,
+    return respond({month,date,services,bookingWindowDays:bookingWindow(state),bookingWindowAnchor:state.booking_window_anchor||null,bookingRange:bookingRange(state),days:dayStates.days,slots:available,
       serverTime:new Date().toISOString()});
   }
   if(route==="/api/calendar"&&method==="GET"){
