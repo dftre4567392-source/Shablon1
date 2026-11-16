@@ -187,12 +187,13 @@ test("Adversarial Chromium: bad input, rapid navigation, stale requests and resp
   const master=await createContext(browser,ids.master);
   await master.page.getByRole("heading",{name:"Кабинет мастера"}).waitFor();
   await navigate(master.page,"Календарь");
+  await master.page.locator("details.master-settings").filter({hasText:"Записать клиента вручную"}).locator("summary").click();
   await master.page.locator("#manualName").fill("Невидимый тест");
   await master.page.locator("#manualService").selectOption("5");
-  await master.page.locator("#manualDate").fill("9999-12-31");
-  await master.page.locator("#manualTime").fill("10:00");
-  await master.page.getByRole("button",{name:"Добавить запись"}).click();
-  await master.page.waitForTimeout(150);
+  // Manual date/time are no longer free text fields. Invalid dates cannot be entered in the master UI.
+  assert.equal(await master.page.locator('#manualDate').getAttribute("type"),"hidden");
+  assert.equal(await master.page.locator('#manualTime').getAttribute("type"),"hidden");
+  assert.equal(await master.page.locator('.cal-day[aria-label^="9999-12-31"]').count(),0);
   assert.equal(master.errors.length,0,master.errors.join("; "));
   await master.page.screenshot({path:new URL("master-invalid-date.png",screenshots).pathname,fullPage:true});
   await master.context.close();
