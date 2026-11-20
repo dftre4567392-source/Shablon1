@@ -1019,6 +1019,58 @@ async function loadAvailability({quiet=false}={}){
 }
 // Legacy helper remains for calls elsewhere in the UI.
 async function loadSlots(options){return loadAvailability(options||{});}
+// Keep the catalogue and studio details up to date without leaving the Mini App.
+let clientSyncBusy=false,lastClientSyncAt=0;
+async function syncClientChanges(){
+  const incoming=await api("/api/client/sync");
+  if(isMaster()||!state.public)return false;
+  const old=state.public;
+  const relevant=data=>JSON.stringify({
+    services:data.services,location:data.location,
+    bookingWindowDays:data.bookingWindowDays,bookingWindowAnchor:data.bookingWindowAnchor
+  });
+  if(relevant(old)===relevant(incoming))return false;
+  const before=old.services||[],after=incoming.services||[];
+  const previousIds=[...state.serviceIds];
+  const oldChosen=before.filter(s=>previousIds.includes(s.id));
+  const newChosen=after.filter(s=>previousIds.includes(s.id));
+  const selectedChanged=JSON.stringify(oldChosen)!==JSON.stringify(newChosen);
+  const windowChanged=old.bookingWindowDays!==incoming.bookingWindowDays||
+    old.bookingWindowAnchor!==incoming.bookingWindowAnchor;
+  state.public={...old,...incoming};
+  state.serviceIds=previousIds.filter(id=>after.some(s=>s.id===id));
+  if(windowChanged&&state.date&&!validCalendarDate(state.date)){
+    state.date="";
+    state.availabilityAlert="Мастер изменил период записи. Выберите новую дату.";
+  }
+  if(state.page==="booking"&&(selectedChanged||windowChanged)){
+    state.time="";
+    state.slots=[];
+    state.slotsLoading=!!(state.date&&state.serviceIds.length);
+    state.slotsRequest++;
+    state.availabilityRequest++;
+    state.calendarInfo=null;
+    if(!state.availabilityAlert)
+      state.availabilityAlert="Мастер обновил услуги или расписание. Проверьте свободное время.";
+  }
+  if(state.page==="home"||state.page==="booking"){
+    const scroll=window.scrollY;
+    render();
+    window.scrollTo(0,scroll);
+  }
+  return true;
+}
+async function refreshClientState(force=false){
+  if(isMaster()||document.visibilityState==="hidden"||!state.public||state.bookingPending)return;
+  if(clientSyncBusy||(!force&&Date.now()-lastClientSyncAt<10000))return;
+  clientSyncBusy=true;lastClientSyncAt=Date.now();
+  try{
+    try{await syncClientChanges();}
+    catch(e){console.warn("BOOKCORE_CLIENT_SYNC_FAILED",String(e));}
+    if(state.page==="booking"&&!rescheduling)await refreshAvailability();
+    if(state.page==="visits"&&!rescheduling)await loadBookings({quiet:true});
+  }finally{clientSyncBusy=false;}
+}
 async function refreshAvailability(){
   if(document.visibilityState==="hidden"||state.bookingPending||isMaster())return;
   if(state.page==="booking"&&!rescheduling)await loadAvailability({quiet:true});
@@ -1060,7 +1112,17 @@ async function leaveWaitlist(id){
   try{await api("/api/waitlist/remove",{method:"POST",body:JSON.stringify({id})});await loadWaitlist();}
   catch(e){fail("Не удалось убрать из листа ожидания: "+e.message)}
 }
-async function loadBookings(){try{state.bookings=(await api("/api/bookings")).bookings||[];render()}catch(error){fail("Не удалось загрузить записи: "+error.message)}}
+async function loadBookings({quiet=false}={}){
+ try{
+   const next=(await api("/api/bookings")).bookings||[];
+   const changed=JSON.stringify(next)!==JSON.stringify(state.bookings);
+   state.bookings=next;
+   if(!quiet||changed)render();
+ }catch(error){
+   if(!quiet)fail("Не удалось загрузить записи: "+error.message);
+   else console.warn("BOOKCORE_LIVE_BOOKINGS_FAILED",String(error));
+ }
+}
 async function cancelBooking(id){
   if(isMaster()){
     const label=(state.master?.bookings||[]).find(b=>b.id===id)?.service_name||"запись";
@@ -1243,12 +1305,12 @@ async function liveCalendarTick(force=false){
       await loadMasterCalendar({quiet:true});
     }catch(error){console.warn("BOOKCORE_LIVE_MASTER_REFRESH_FAILED",String(error));}
     finally{liveMasterSyncBusy=false;}
-  }else if(!isMaster()&&state.page==="booking"&&(force||newDay)){
-    await refreshAvailability();
+  }else if(!isMaster()&&(force||newDay)){
+    await refreshClientState(true);
   }
 }
 setInterval(updateRestoreCountdowns,1000);
-setInterval(()=>{void refreshAvailability()},11000+Math.floor(Math.random()*4000));
+setInterval(()=>{void refreshClientState()},11000+Math.floor(Math.random()*4000));
 setInterval(()=>{void liveCalendarTick()},3000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")void liveCalendarTick(true);});
 window.addEventListener("focus",()=>{void liveCalendarTick(true);});
