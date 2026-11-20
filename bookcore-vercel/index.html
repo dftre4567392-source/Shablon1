@@ -38,6 +38,13 @@
 .cal-day .cal-symbol{font-size:9px;position:absolute;right:3px;bottom:1px;line-height:1}
 .cal-day{position:relative}
 
+/* Master setup checklist collapses into a one-line bar. */
+.setup-compact{padding:0!important;overflow:hidden;margin:12px 0 17px}
+.setup-compact .master-check-title{padding:12px 15px;min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;cursor:pointer;list-style:none}
+.setup-compact .master-check-title::-webkit-details-marker{display:none}
+.setup-compact .master-inner{padding:6px 15px 14px}
+.setup-chevron{margin-left:auto;font-size:22px;font-weight:500;line-height:1;transition:transform .2s}
+.setup-compact[open] .setup-chevron{transform:rotate(180deg)}
 /* Studio address and editorial service cards */
 .service{align-items:flex-start}
 .service-media{width:92px;height:96px;flex-shrink:0;object-fit:cover;border-radius:13px;background:#f4e9ef;border:1px solid #eee1e8}
@@ -91,7 +98,7 @@
 const tg=window.Telegram&&window.Telegram.WebApp;
 if(tg){tg.ready();tg.expand();}
 const initial=tg&&tg.initData||"";
-const state={masterWindowPreview:null,masterDayScope:"day",masterWeekDays:[0,1,2,3,4],public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false,masterMonth:"",masterDate:"",masterCalendar:null,masterServiceId:null,masterTime:"",masterSlots:[],masterCalendarRequest:0};
+const state={masterWindowPreview:null,masterDayScope:"day",masterWeekDays:[0,1,2,3,4],public:null,me:null,page:"home",serviceIds:[],date:"",time:"",slots:[],slotsLoading:false,slotsError:"",calendarMonth:"",bookingPending:false,bookings:[],master:null,loading:false,avatarUrl:null,avatarLoading:false,notificationPrefs:null,notificationSaving:false,waitlist:[],calendarInfo:null,calendarRequest:0,slotsRequest:0,availabilityUpdatedAt:0,availabilityAlert:"",availabilityRequest:0,availabilityBusy:false,masterMonth:"",masterDate:"",masterCalendar:null,masterServiceId:null,masterTime:"",masterSlots:[],masterCalendarRequest:0,setupExpanded:false};
 const el=(id)=>document.getElementById(id);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const rub=(x)=>new Intl.NumberFormat("ru-RU").format(x||0)+" ₽";
@@ -823,8 +830,10 @@ function masterSetupChecklist(){
     {ok:(state.master?.schedule||[]).some(d=>d.active),text:"Настроены рабочие дни",page:"calendar"}
   ];
   const ready=checks.filter(x=>x.ok).length;
-  return '<div class="section"><h2>Готовность студии</h2></div>'+
-   '<details class="card master-settings" '+(ready===checks.length?'':'open')+'><summary class="master-check-title">Профиль студии · '+ready+'/'+checks.length+' готово</summary><div class="master-inner"><div class="row"><b>'+ready+' из '+checks.length+' пунктов заполнено</b>'+
+  return '<details class="card master-settings setup-compact" '+(state.setupExpanded?'open':'')+
+   ' ontoggle="state.setupExpanded=this.open"><summary class="master-check-title">⚙ Готовность студии · '+ready+'/'+checks.length+
+   ' <span class="setup-chevron" aria-hidden="true">⌄</span></summary>'+
+   '<div class="master-inner"><div class="row"><b>'+ready+' из '+checks.length+' пунктов заполнено</b>'+
    '<span class="pill">'+(ready===checks.length?"Готово":"Настройка")+'</span></div>'+
    '<div style="background:#f2e6ed;border-radius:10px;height:9px;overflow:hidden;margin:14px 0">'+
    '<div style="background:#97617c;height:100%;width:'+Math.round(100*ready/checks.length)+'%"></div></div>'+
