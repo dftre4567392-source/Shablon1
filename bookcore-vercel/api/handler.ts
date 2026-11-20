@@ -216,7 +216,7 @@ function seed(){return {
  users:{},
  services:bootstrapServices(),
  schedule:[0,1,2,3,4,5,6].map(weekday=>({weekday,start_time:"10:00",end_time:"19:00",active:weekday>=1&&weekday<=5})),
- blocks:[],day_overrides:[],booking_window_days:30,booking_window_anchor:null,location:{address:"",landmark:"",latitude:null,longitude:null},bookings:[],seq:1
+ blocks:[],day_overrides:[],master_notification_muted:{},booking_window_days:30,booking_window_anchor:null,location:{address:"",landmark:"",latitude:null,longitude:null},bookings:[],seq:1
 };}
 async function getMetadata(){
   try{return await head(PATH);}
@@ -358,7 +358,12 @@ async function notify(chat,text,reply_markup){
   if(!TOKEN||!chat)return false;
   try{await botCall("sendMessage",{chat_id:chat,text,...(reply_markup?{reply_markup}:{})});return true;}catch(e){console.warn("BOOKCORE_NOTIFICATION_FAILED",String(e));return false;}
 }
-async function notifyMasters(message){await Promise.all([...MASTER_IDS].map(id=>notify(id,message)));}
+async function notifyMasters(message){
+  // Each master controls their own chat notifications. Client notifications remain unaffected.
+  const {state}=await load();
+  const muted=state.master_notification_muted||{};
+  await Promise.all([...MASTER_IDS].filter(id=>muted[id]!==true).map(id=>notify(id,message)));
+}
 function prettyDate(value){return new Date(value).toLocaleString("ru-RU",{timeZone:TZ,dateStyle:"medium",timeStyle:"short"});}
 
 const OFFER_CYCLES=new Set([14,21,28,35,45,60]);
@@ -809,11 +814,21 @@ async function execute(req){
     return respond({ok:true,id:booking.id});
   }
   if(!auth.master)fail(403,"FORBIDDEN");
+  if(route==="/api/master/notifications"&&method==="POST"){
+    const b=await body(req);
+    if(typeof b.enabled!=="boolean")fail(400,"INVALID_NOTIFICATION_SETTINGS");
+    await mutate(s=>{
+      s.master_notification_muted||={};
+      s.master_notification_muted[auth.id]=!b.enabled;
+      return true;
+    });
+    return respond({ok:true,enabled:b.enabled});
+  }
   if(route==="/api/master"&&method==="GET"){
     const {state}=await load();
     return respond({bookings:state.bookings.slice().sort((a,b)=>b.starts_at.localeCompare(a.starts_at)).slice(0,250).map(listBooking),
       blocks:state.blocks.slice(-120),schedule:state.schedule,services:state.services.map(s=>({...publicService(s),active:s.active!==false,photoSources:Array.isArray(s.photos)?s.photos:[]})),location:publicLocation(state),
-      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),bookingWindowDays:bookingWindow(state),bookingWindowAnchor:state.booking_window_anchor||null,bookingRange:bookingRange(state)});
+      clients:crmStats(state),waitlist:(state.waitlist||[]).filter(x=>x.status==="active").length,analytics:masterAnalytics(state),masterNotificationsEnabled:state.master_notification_muted?.[auth.id]!==true,bookingWindowDays:bookingWindow(state),bookingWindowAnchor:state.booking_window_anchor||null,bookingRange:bookingRange(state)});
   }
 
   if(route==="/api/master/calendar"&&method==="GET"){
