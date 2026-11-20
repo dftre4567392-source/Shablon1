@@ -591,6 +591,17 @@ async function execute(req){
     const bot=await ensureBotSetup();
     return respond({studio:STUDIO,masterName:MASTER_NAME,timezone:TZ,accentColor:BRAND_COLOR,bookingWindowDays:bookingWindow(state),bookingWindowAnchor:state.booking_window_anchor||null,bookingRange:bookingRange(state),location:publicLocation(state),services:state.services.filter(x=>x.active).map(publicService),ready:!!TOKEN&&!!MASTER&&bot.configured,botConfigured:bot.configured,botUsername:bot.username||null,masterConfigured:!!MASTER});
   }
+  // Lightweight live catalogue and location snapshot; avoids reconfiguring the bot on each poll.
+  // Booking availability is still checked separately with its existing server-side rules.
+  if(route==="/api/client/sync"&&method==="GET"){
+    const {state}=await load();
+    return respond({
+      services:state.services.filter(x=>x.active).map(publicService),
+      location:publicLocation(state),
+      bookingWindowDays:bookingWindow(state),
+      bookingWindowAnchor:state.booking_window_anchor||null
+    });
+  }
   // One snapshot for both the calendar and the selected day's slots.
   // Read the Blob once to avoid doubling storage reads for every active client.
   if(route==="/api/availability"&&method==="GET"){
