@@ -839,6 +839,21 @@ async function toggleServiceVisibility(id,active){
   fail(active?"Услуга снова доступна клиентам.":"Услуга скрыта из записи. Старые посещения сохранены.");
  }catch(e){fail("Не удалось изменить доступность: "+e.message);}
 }
+async function saveMasterNotifications(input){
+ const enabled=!!input.checked;
+ input.disabled=true;
+ const status=el("masterNotificationsStatus");
+ if(status)status.textContent="Сохраняем настройку…";
+ try{
+   await api("/api/master/notifications",{method:"POST",body:JSON.stringify({enabled})});
+   if(state.master)state.master.masterNotificationsEnabled=enabled;
+   if(status)status.textContent=enabled?"Уведомления включены":"Уведомления отключены";
+ }catch(e){
+   input.checked=!enabled;
+   if(status)status.textContent="Не удалось сохранить настройку";
+   fail("Ошибка настройки уведомлений: "+e.message);
+ }finally{input.disabled=false;}
+}
 function masterView(){if(state.page==="analytics"&&!state.loading)return masterReports();if(state.loading)return '<div class="empty">Загружаем кабинет мастера…</div>';if(state.page==="overview"){const arr=state.master&&state.master.bookings||[];const recent=arr.filter(x=>x.status==="confirmed");return '<div class="section"><h2>Кабинет мастера</h2></div><div class="grid">' +masterMetric("Ждут посещения",recent.length)+masterMetric("Всего клиентов",(state.master?.clients||[]).length)+masterMetric("Записей сегодня",state.master?.analytics?.todayBookings??0)+masterMetric("Постоянных клиентов",state.master?.analytics?.regularClients??0)+masterMetric("В листе ожидания",state.master?.waitlist??0)+masterMetric("Процедур за месяц",state.master?.analytics?.completedThisMonth??0)+'</div>'+masterSetupChecklist()+'<div class="section"><h2>Ближайшие записи</h2></div>'+recent.slice(0,10).map(bookingCard).join("")+'<button class="btn full" onclick="route(\'calendar\')">Управлять календарём</button>';}
 if(state.page==="calendar")return masterCalendarView();
 if(state.page==="clients"){
@@ -852,6 +867,14 @@ if(state.page==="clients"){
 }
 const loc=state.master?.location||state.public?.location||{};
 return '<div class="section"><h2>Услуги и настройки</h2></div>'+
+  '<div class="card"><h3>🔔 Уведомления мастера</h3>'+
+  '<p class="sub">Включайте или отключайте Telegram-сообщения о новых записях, переносах и отменах. Это настройка только ваших уведомлений — сообщения клиентам продолжат приходить.</p>'+
+  '<label class="row" for="masterNotificationsSwitch" style="gap:12px;cursor:pointer;margin:14px 0">'+
+  '<span style="font-weight:700">Присылать мне уведомления</span>'+
+  '<input id="masterNotificationsSwitch" type="checkbox" style="width:23px;height:23px;accent-color:#67415a" '+
+  (state.master?.masterNotificationsEnabled!==false?"checked ":"")+'onchange="saveMasterNotifications(this)"/></label>'+
+  '<div class="sub" id="masterNotificationsStatus" aria-live="polite">'+
+  (state.master?.masterNotificationsEnabled!==false?"Уведомления включены":"Уведомления отключены")+'</div></div>'+
   '<div class="card" id="studioAddressSettings"><h3>📍 Адрес студии и карта</h3>'+
   '<p class="sub">Укажите точный адрес — клиент увидит его на главной странице, откроет карту и сможет построить маршрут.</p>'+
   '<label class="cap" for="studioAddress">Адрес с городом</label>'+
@@ -873,8 +896,8 @@ return '<div class="section"><h2>Услуги и настройки</h2></div>'+
   '<label class="cap" for="newServicePhotos">Либо ссылки на фотографии (необязательно)</label>'+
   '<textarea id="newServicePhotos" class="field" rows="2" placeholder="https://.../foto1.jpg"></textarea>'+
   '<div id="newServiceStatus" class="sub" aria-live="polite"></div>'+
-  '<div class="grid"><input id="newServiceMinutes" class="field" type="number" min="15" max="600" value="120" placeholder="Минут"/>'+
-  '<input id="newServicePrice" class="field" type="number" min="0" max="1000000" value="1700" placeholder="Цена ₽"/></div>'+
+  '<div class="grid"><div><label class="cap" for="newServiceMinutes">⏱ Длительность услуги, минут</label><input id="newServiceMinutes" class="field" type="number" min="15" max="600" value="120" placeholder="Например, 120"/></div>'+
+  '<div><label class="cap" for="newServicePrice">₽ Стоимость услуги, рублей</label><input id="newServicePrice" class="field" type="number" min="0" max="1000000" value="1700" placeholder="Например, 1700"/></div></div>'+
   '<button class="btn full" onclick="createService()">Добавить услугу</button></div><div class="section"><h2>Текущие услуги</h2></div>'+serviceCards()+'<div class="section"><h2>Изменить существующие услуги</h2></div>'+
  (state.master?.services||[]).map(x=>'<div class="card" style="margin-bottom:12px"><div class="row"><b>'+esc(x.title)+'</b>'+
  '<span class="pill">'+(x.active===false?"Скрыта":"Доступна")+'</span></div>'+
@@ -890,8 +913,8 @@ return '<div class="section"><h2>Услуги и настройки</h2></div>'+
  '<textarea id="editPhotos'+x.id+'" rows="3" class="field">'+esc((x.photoSources||x.photos||[]).join("\n"))+'</textarea>'+
  ((x.photos||[]).length?'<div class="photo-gallery">'+(x.photos||[]).map((url,i)=>
  '<div>'+photoMarkup(url,x.title,"")+'<button type="button" class="service-more" style="margin-top:5px" onclick="removeServicePhoto('+x.id+','+i+')">Убрать фото</button></div>').join("")+'</div>':"")+
- '<div class="grid"><div><label class="cap">Сколько минут</label><input id="editMinutes'+x.id+'" class="field" type="number" min="15" max="600" value="'+x.minutes+'"/></div>'+
- '<div><label class="cap">Стоимость, ₽</label><input id="editPrice'+x.id+'" class="field" type="number" min="0" max="1000000" value="'+x.price+'"/></div></div>'+
+ '<div class="grid"><div><label class="cap" for="editMinutes'+x.id+'">⏱ Длительность услуги, минут</label><input id="editMinutes'+x.id+'" class="field" type="number" min="15" max="600" value="'+x.minutes+'"/></div>'+
+ '<div><label class="cap" for="editPrice'+x.id+'">₽ Стоимость услуги, рублей</label><input id="editPrice'+x.id+'" class="field" type="number" min="0" max="1000000" value="'+x.price+'"/></div></div>'+
  '<button class="btn line full" onclick="saveExistingService('+x.id+')">Сохранить</button></div>').join("")+
  '<div class="section"><h2>Изменить график</h2></div><div class="card"><select id="weekday" class="field"><option value="0">Понедельник</option><option value="1">Вторник</option><option value="2">Среда</option><option value="3">Четверг</option><option value="4">Пятница</option><option value="5">Суббота</option><option value="6">Воскресенье</option></select><div class="grid"><input id="workStart" type="time" class="field" value="10:00"/><input id="workEnd" type="time" class="field" value="19:00"/></div><label class="sub"><input id="workEnabled" type="checkbox" checked/> Рабочий день</label><button class="btn full" style="margin-top:12px" onclick="saveSchedule()">Сохранить график</button></div><div class="section"><h2>Рабочие дни</h2></div>'+(state.master&&state.master.schedule||[]).map(w=>'<div class="item row"><span>'+["Пн","Вт","Ср","Чт","Пт","Сб","Вс"][w.weekday]+'</span><span>'+esc(w.start_time)+'–'+esc(w.end_time)+'</span><span class="pill">'+(w.active?"Рабочий":"Выходной")+'</span></div>').join("");}
 function render(){
