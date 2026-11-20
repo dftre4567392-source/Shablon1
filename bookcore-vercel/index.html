@@ -1043,7 +1043,8 @@ async function syncClientChanges(){
   const previousIds=[...state.serviceIds];
   const oldChosen=before.filter(s=>previousIds.includes(s.id));
   const newChosen=after.filter(s=>previousIds.includes(s.id));
-  const selectedChanged=JSON.stringify(oldChosen)!==JSON.stringify(newChosen);
+  const selectedChanged=JSON.stringify(oldChosen.map(x=>({id:x.id,minutes:x.minutes,price:x.price})))!==
+    JSON.stringify(newChosen.map(x=>({id:x.id,minutes:x.minutes,price:x.price})));
   const windowChanged=old.bookingWindowDays!==incoming.bookingWindowDays||
     old.bookingWindowAnchor!==incoming.bookingWindowAnchor;
   state.public={...old,...incoming};
