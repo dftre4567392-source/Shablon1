@@ -796,11 +796,16 @@ async function execute(req){
       if(!originalMinutes||
          !slots(auth.master?{...s,booking_window_days:45,booking_window_anchor:null}:s,date,x.service_ids||[x.service_id],x.id,originalMinutes).includes(time))
         fail(409,"TIME_NOT_AVAILABLE");
+      const previousStartsAt=x.starts_at;
       Object.assign(x,timeRange({minutes:originalMinutes},date,time),{service_minutes:originalMinutes});
-      return {...x};
+      return {...x,previousStartsAt};
     });
     await notify(booking.telegram_id,"Запись перенесена: "+prettyDate(booking.starts_at));
-    if(!auth.master)await notifyMasters("Клиент перенёс запись: "+booking.name);
+    if(!auth.master)await notifyMasters("🔄 Клиент перенёс запись\\n"+
+      "Клиент: "+booking.name+"\\n"+
+      "Услуга: "+booking.service_name+"\\n"+
+      "Было: "+prettyDate(booking.previousStartsAt)+"\\n"+
+      "Стало: "+prettyDate(booking.starts_at));
     return respond({ok:true,id:booking.id});
   }
   if(!auth.master)fail(403,"FORBIDDEN");
